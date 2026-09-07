@@ -1,23 +1,57 @@
-# MDR Automation Tool — Phase 1 Engine
+# MDR Automation Tool
 
 Deterministic engine that reads the MDR workbooks, normalises document
 identities, consolidates `QatarEnergy-TN` with `TN FROM VENDORS`, interprets
 Status Codes, sequences revisions and determines the latest revision.
 
+**Phase 1 is complete and validated. Phases 2–7 are not implemented.**
+
 **The source workbooks are never modified.** Every workbook is opened
 read-only, and a test asserts the file hash and mtime are unchanged by a run.
 
-## Run
+---
 
-```bash
-python -m mdr_engine.cli --validate            # uses input/new/… by default
-python -m mdr_engine.cli --workbook path/to.xlsx --outdir output
+## Layout
+
+```
+mdr-automation/
+├── backend/          MDR engine, domain, infrastructure, API
+│   ├── app/
+│   │   ├── domain/          MDR concepts — no framework, no I/O
+│   │   ├── engine/          every business rule
+│   │   ├── infrastructure/  Excel, filesystem, storage
+│   │   ├── services/        orchestration
+│   │   ├── api/             HTTP boundary
+│   │   ├── core/            config, logging
+│   │   └── cli.py
+│   └── tests/        unit · integration · regression
+├── frontend/         Vite + React + TypeScript scaffold
+├── data/             input · reference · rules · output · fixtures (git-ignored)
+├── docs/             architecture · business rules · phases
+└── scripts/          workbook inspection, phase validation
 ```
 
-Set `PYTHONPATH=src`, or run from the project root where `tests/conftest.py`
-puts `src` on the path.
+Dependencies point one way only:
+`frontend → api → services → engine → domain`, with infrastructure supporting
+from the side. See
+[`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md).
 
-## Output (`output/`)
+---
+
+## Getting started
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+
+# Put a workbook in data/input/current/, then:
+python -m app.cli --validate
+python -m app.cli --workbook path/to.xlsx --outdir some/dir
+```
+
+Output lands in `data/output/latest/`:
 
 | File | Contents |
 |---|---|
@@ -27,53 +61,77 @@ puts `src` on the path.
 | `exceptions.csv` | Rows needing human review |
 | `validation_report.json` | Comparison vs the workbook's own L/NL column |
 
-Each document record carries: `document_identity`, `qatarenergy_document_no`,
+Each document record carries `document_identity`, `qatarenergy_document_no`,
 `revision`, `issue_code`, `review_code`, `revision_type`, `revision_rank`,
 `is_latest_revision`, `revision_status`, `match_status`, `match_method` and a
 `reason` explaining the decision.
 
+### API
+
+```bash
+cd backend
+uvicorn app.main:app --reload      # http://127.0.0.1:8000/docs
+```
+
+`GET /api/health` and `GET /api/mdr/summary`. **Unauthenticated — local use
+only.**
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173, proxies /api to the backend
+npm run build
+```
+
+### Tests
+
+```bash
+cd backend
+python -m pytest tests            # 120 tests
+```
+
+Integration and regression suites skip automatically when the workbooks are
+absent.
+
+### Configuration
+
+All paths resolve through `backend/app/core/config.py`. Copy `.env.example` to
+`.env` to override. No credentials, secrets or production paths are in source.
+
+---
+
 ## Results
 
 - **0 genuine conflicts** against the workbook's own `LATEST/ NOT LATEST` column
-- 97.58% raw agreement; every disagreement has an identified root cause
+- 97.58 % raw agreement; every disagreement has an identified root cause
 - 79 rows where the engine is right and the manual workbook is stale
 - 262 unlabelled rows the engine resolves — the manual backlog
 
-See [`docs/PHASE1_FINDINGS.md`](docs/PHASE1_FINDINGS.md) for the evidence
-behind every rule, including one candidate rule that was **tested and
-rejected**, and the open questions for the business.
+---
 
-## Design
+## Documentation
 
-```
-src/mdr_engine/
-  identity.py      normalisation + canonical keys (conservative: never drops segments)
-  revision.py      revision parsing and ordering bands
-  status_codes.py  Status Codes sheet -> review/issue codes (loaded, not hard-coded)
-  workbook_io.py   read-only sheet/column discovery by header text, not position
-  matching.py      QE <-> vendor tier ladder; ambiguity matches nothing
-  engine.py        orchestration, grouping, latest determination
-  validate.py      ground-truth comparison with root-cause classification
-  cli.py           entry point
-```
+| Document | Contents |
+|---|---|
+| [SYSTEM_ARCHITECTURE](docs/architecture/SYSTEM_ARCHITECTURE.md) | Layering, dependency rules, module map |
+| [DATA_FLOW](docs/architecture/DATA_FLOW.md) | End-to-end flow, with unimplemented stages marked |
+| [API_ARCHITECTURE](docs/architecture/API_ARCHITECTURE.md) | The API boundary and what it may not do |
+| [DECISION_LOG](docs/architecture/DECISION_LOG.md) | Every Phase 1 decision, with its evidence |
+| [MDR_BUSINESS_RULES](docs/business-rules/MDR_BUSINESS_RULES.md) | Full Phase 1 evidence base |
+| [document-identity](docs/business-rules/document-identity.md) · [revision-rules](docs/business-rules/revision-rules.md) | The implemented rules |
+| [docs/phases/](docs/phases/) | Per-phase status |
 
-Principles held throughout: accuracy over coverage; an explicit exception
-instead of a guess; every decision carries a reason. Modules are independent so
-Phase 2 (DOC TYPE, SOW, IDB, received-document dump, Excel output) can be added
-without touching the revision/matching engine.
+The decision log records one candidate rule that was **tested and rejected**,
+the open questions for the business, and the known warts that were deliberately
+left unchanged.
 
-## Tests
-
-```bash
-python -m pytest tests -q     # 120 tests
-```
-
-Unit tests cover the rules and the specific anomalies found in the real data;
-`test_integration.py` runs the full workbook and asserts invariants (at most
-one latest per document, no genuine conflicts, source file unmodified). It
-skips automatically if the workbooks are absent.
+---
 
 ## Not in Phase 1
 
-DOC TYPE, SOW, IDB, CHECK STATUS / received-document dump, Excel output,
-frontend, deployment. No AI/LLM is used — all logic is deterministic.
+DOC TYPE classification, SOW, IDB, CHECK STATUS / received-document dump, Excel
+MDR output, the employee workflow, authentication, job queue, deployment.
+
+No AI/LLM is used anywhere — every decision is deterministic and explainable.

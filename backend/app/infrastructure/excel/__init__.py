@@ -1,0 +1,1 @@
+"""Read-only Excel access."""

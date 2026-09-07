@@ -1,0 +1,72 @@
+name: backend-tests
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - 'scripts/**'
+      - '.github/workflows/backend-tests.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'scripts/**'
+      - '.github/workflows/backend-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Import check
+        # The layering is only real if it imports cleanly with nothing loaded.
+        run: |
+          python -c "import app.main"
+          python -c "import app.cli"
+          python -c "from app.services.mdr_pipeline import MdrEngine"
+
+      - name: Domain purity
+        # The domain must not depend on FastAPI or openpyxl. This fails if a
+        # future change introduces such an import.
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys
+          banned = {"fastapi", "starlette", "openpyxl", "pydantic"}
+          bad = []
+          for path in pathlib.Path("app/domain").rglob("*.py"):
+              tree = ast.parse(path.read_text(encoding="utf-8"))
+              for node in ast.walk(tree):
+                  mods = []
+                  if isinstance(node, ast.Import):
+                      mods = [a.name for a in node.names]
+                  elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                      mods = [node.module]
+                  for m in mods:
+                      if m.split(".")[0] in banned:
+                          bad.append(f"{path}: imports {m}")
+          if bad:
+              print("\n".join(bad)); sys.exit(1)
+          print("domain layer is clean")
+          PY
+
+      - name: Test
+        # Integration and regression suites skip: the workbooks are not in CI.
+        run: python -m pytest tests

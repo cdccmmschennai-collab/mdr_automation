@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ------------------------------------------------------------------ Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ------------------------------------------------------------ Environment
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------------- IDE
+.vscode/
+.idea/
+*.swp
+
+# --------------------------------------------------------------- OS cruft
+.DS_Store
+Thumbs.db
+
+# =====================================================================
+# PRODUCTION DATA — never committed.
+#
+# The MDR workbooks are client project data. Only the intentionally
+# versioned test fixtures under data/fixtures/ are tracked.
+# =====================================================================
+data/input/
+data/reference/
+data/received/
+data/output/
+data/rules/
+
+# Excel lock files, wherever they appear
+~$*.xls*
+
+# Keep the directory skeleton so a fresh clone has somewhere to put files.
+!data/**/.gitkeep
+
+# Test fixtures ARE tracked - they are small, synthetic and part of the suite.
+!data/fixtures/
+!data/fixtures/**

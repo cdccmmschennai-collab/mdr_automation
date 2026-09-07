@@ -1,0 +1,31 @@
+[project]
+name = "mdr-automation-backend"
+version = "0.2.0"
+description = "MDR Automation Tool - backend: MDR engine, domain and API"
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mdr-engine = "app.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+# `backend/` on the import path, so `app.*` and `tests.support.*` resolve
+# whether pytest is run from backend/ or from the repository root.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

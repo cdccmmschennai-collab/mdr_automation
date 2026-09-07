@@ -1,0 +1,43 @@
+# Local development only.
+#
+# This is NOT a production deployment: the API is unauthenticated, the backend
+# runs with --reload, and the frontend runs the Vite dev server. Production
+# deployment is Phase 7.
+#
+# Data is bind-mounted read-only where the engine only reads, so a container
+# cannot modify a source workbook even by accident.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      MDR_DATA_DIR: /data
+      MDR_LOG_LEVEL: ${MDR_LOG_LEVEL:-INFO}
+      MDR_CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - ./backend:/app
+      - ./data/input:/data/input:ro
+      - ./data/reference:/data/reference:ro
+      - ./data/rules:/data/rules:ro
+      - ./data/received:/data/received:ro
+      - ./data/output:/data/output
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
