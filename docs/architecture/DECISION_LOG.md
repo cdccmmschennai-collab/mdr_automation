@@ -263,6 +263,137 @@ reports that there is nothing to process. No production path is in source.
 
 ---
 
+## Phase 2A decisions - DOC TYPE classification
+
+Full working, with the tables these summarise, in
+[../business-rules/classification-rules.md](../business-rules/classification-rules.md).
+
+### D-13 - Keywords match as substrings, not on word boundaries
+
+**Decision:** a plain keyword matches anywhere in the text. `TEST CERTIFICATE`
+catches `TEST CERTIFICATES`; `CROSS SECTION` catches `CROSS SECTIONAL`.
+
+**Evidence:** the workbook's keywords are written in the singular while the
+documents are plural or inflected. Word-bounded matching was implemented and
+measured against the reference workbook: it **loses 78** rows the reference
+gets right - every one a plural or inflection - and gains 4.
+
+**Cost, accepted:** `PLAN` matches inside `PLANNING`, and the plant name
+`EFFLUENT WATER TREATMENT PLANT` contains `PLAN`. Precedence contains it; the
+residue is 4 rows.
+
+**Where:** `engine/classification/rules.py`
+
+---
+
+### D-14 - Required rules outrank not-required rules
+
+**Decision:** where rules from both keyword sheets match, `REQUIRED-KEY
+DOC.WORDS` wins.
+
+**Evidence:** over the 115 reference rows where both sheets matched, the
+reference's own answer agreed with the required sheet **84** times and with the
+not-required sheet **0** times (31 rows carried a third label).
+
+**Where:** `engine/classification/rules.py` (`SOURCE_PRECEDENCE`)
+
+---
+
+### D-15 - Within a sheet, the earlier workbook row wins - WEAK EVIDENCE
+
+**Decision:** row order breaks ties inside a sheet, so `*P&ID*LEGEND*` (row 10)
+outranks `P&ID` (row 51).
+
+**Evidence:** 22 rows to 4 against the alternative (a document-number keyword
+outranking an earlier title keyword). Adopted because it also matches the order
+the business authored the rules in.
+
+**This is not settled.** The alternative would fix four
+`CV OF ... PLANNING ENGINEER` rows and break 22 demolition isometrics. Total
+cost of the choice: 5 rows out of 3,356. Recorded as an open question below.
+
+---
+
+### D-16 - Column AL is not a DOC TYPE column ❌ TARGET REJECTED AS-IS
+
+**Decision:** the reference `DOC TYPE` column is compared against, but only
+over the subset that actually states a document type. It is never an input.
+
+**Evidence:** of 21,372 rows, 9,934 read `OLD REV NOT SOW`, 4,411 `OTHER`,
+3,648 `NOT SOW` and 23 `NO` - scope-of-work and revision verdicts, none of
+which any keyword rule can produce. **3,356 rows** state a document type.
+Quoting a rate over all 21,372 would be meaningless.
+
+**Result:** 2,564 exact of 3,356 comparable = **76.40 %**.
+
+**Where:** `engine/validation/doc_type.py`
+
+---
+
+### D-17 - `OLD REV NOT SOW` is recorded, not implemented
+
+**Decision:** Phase 2A emits DOC TYPE only. `OLD REV NOT SOW` is not produced,
+and Phase 1's latest-revision engine is untouched.
+
+**Evidence:** it tracks the revision flag, not the document: 9,831 of its
+9,934 rows are `NL`, and only **4** are `L`. That makes it a Phase 2B revision
+plus scope-of-work verdict about a document Phase 1 has already ranked.
+
+---
+
+### D-18 - No special case was added per mismatch
+
+**Decision:** the remaining 792 mismatches were grouped by cause and left
+unencoded. No rule was invented from a reference answer.
+
+**Evidence:** the causes are label drift (`GAD` vs `MXS`, 127 rows - and the
+rules workbook itself maps `GAD` to `MXS`), a stale reference (`MVD` vs `MMD`,
+16 rows - the `FOLDER-UPDATE` sheet confirms the migration), constructs the
+rule set cannot express (`MXB-DEM`, 42 rows), rules that do not exist yet (338
+rows) and manual answers that contradict each other - the reference labels two
+identically titled `PUMP NAME PLATE DRAWING` rows `MNP` and `MMD`.
+
+---
+
+## Phase 2A architecture decisions
+
+### A-10 - The classifier takes two fields, not a row
+
+`classify(document_number, document_title)`. No worksheet, no coordinates, no
+`DocumentRecord`. Only those two fields are used because the rules workbook's
+only two keyword columns are `DOC NUMBER- KEYWORD` and `DOC DESC- KEYWORDS`;
+discipline, area, originator, revision and issue code are not consulted by any
+rule and so are not passed.
+
+### A-11 - Two modules, not a rules framework
+
+`rules.py` (keyword syntax, rule model, precedence) and `classifier.py` (the
+verdict). No `parser.py`: the pattern translation is about twenty lines and
+splitting it would have produced a module with no independent responsibility.
+No `utils.py` - see A-02.
+
+### A-12 - Every match is kept, not just the winner
+
+`DocumentClassification.matches` retains all of them and
+`competing_doc_types` lists the distinct answers. 1,865 reference rows match
+more than one rule; collapsing that to one string would hide a real business
+ambiguity that Phase 2B will have to resolve.
+
+### A-13 - Classification is optional in the pipeline
+
+`MdrEngine` runs without a rules workbook and leaves every `doc_type` empty.
+Phase 1 remains usable on its own, and the 120 Phase 1 tests are unaffected.
+
+### A-14 - Vendor consolidation is a config flag with no implementation
+
+`settings.vendor_consolidation_enabled` is `False`. `TN FROM VENDORS` rows are
+resolved against QatarEnergy documents by Phase 1 matching but are **not**
+merged into the processing universe, and no consolidation code exists. The flag
+exists so a future plant that needs it has a named place to turn it on - it is
+not a half-built feature.
+
+---
+
 ## Open questions for the business
 
 Carried forward from Phase 1, unanswered:
@@ -276,3 +407,21 @@ Carried forward from Phase 1, unanswered:
    no dedicated column. See D-04.
 4. **Should the 262 unlabelled rows be written back?** Phase 1 deliberately does
    not modify the workbook.
+
+Raised by Phase 2A:
+
+5. **Which DOC TYPE vocabulary is authoritative?** The rules workbook answers
+   `MXS` where the reference says `GAD` (127 rows), `MATERIAL SUBMITTAL` where
+   the reference also uses `MS` (38 rows), and long names where the reference
+   uses `UFD`, `PFD`, `MWD`, `LOAD LIST`, `SCHEMATIC`. Several of those have no
+   DOKAR code in the `DOCUMENT TYPE` sheet. See D-16, D-18.
+6. **How should compound and multi-valued types be expressed?** The reference
+   records `MXB-DEM` (42 rows) and `GAD/MWD`, `SCHEMATIC/MWD`, `MHR/MSI`. The
+   rules workbook has no construct for either.
+7. **Should a "not required" document carry a DOC TYPE at all**, or only a
+   scope-of-work verdict? Phase 2A emits the not-required sheet's labels.
+8. **Should rules be added for the 338 uncovered documents?** Mostly
+   general-arrangement drawings and layout variants the required sheet does not
+   list. Deriving them from the reference's answers would be inventing rules.
+9. **Does a document-number keyword outrank an earlier title keyword?** See
+   D-15; the evidence is 22 to 4 and the choice costs 5 rows.

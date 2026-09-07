@@ -5,6 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Phase 2A: DOC TYPE classification
+
+Documents are now classified from the keyword rules workbook
+(`data/rules/INPUT-KEYWORDS  FOR MDR TOOL.xlsx`, 182 rules across its two
+keyword sheets). **DOC TYPE only** — SOW, IDB and CHECK STATUS remain
+unimplemented, and nothing writes an Excel file.
+
+- `engine/classification/` — `rules.py` (keyword syntax, rule model,
+  precedence) and `classifier.py` (the verdict). Two modules, no framework, no
+  `utils.py`.
+- `domain/models/classification.py` — `DocumentClassification` retains **every**
+  matching rule, not just the winner; 1,865 reference rows match more than one.
+- `infrastructure/excel/rules_workbook.py` and `reference_workbook.py` — the two
+  new read-only adapters. The classifier never sees a worksheet or a column.
+- `engine/validation/doc_type.py` — comparison against column AL of
+  `QatarEnergy-TN WORKING`, with mismatches grouped by root cause.
+- `DocumentRecord` gains `doc_type` and `doc_type_rule`; `documents.csv` gains
+  both columns and `doc_type_report.json` is a new artefact.
+- `scripts/validate_phase.py --phase 2`, and `--out` on both phases.
+- `settings.vendor_consolidation_enabled = False` — `TN FROM VENDORS` is
+  explicitly **not** merged into the processing universe. A named switch with
+  no implementation behind it, so a future plant has somewhere to turn it on.
+
+**Matching semantics**, derived from the workbook rather than assumed: plain
+keywords match as substrings (they are written in the singular and must catch
+plurals — word-bounded matching loses 78 rows and gains 4), `*` is a wildcard,
+` or ` is alternation, and a run of X's in a document-number keyword means
+digits. Required-sheet rules outrank not-required ones — where both matched, the
+reference agreed with the required sheet 84 times and the not-required sheet 0.
+
+**Validation:** 2,564 exact matches of the 3,356 rows where column AL states a
+document type — **76.40 %**. The remaining 18,016 rows of that column hold
+scope-of-work and revision verdicts (`OLD REV NOT SOW`, `NOT SOW`, `OTHER`) that
+no keyword rule can produce. The 792 mismatches are grouped by cause — label
+drift, a stale reference, compound labels the rule set cannot express, missing
+rules, and manual answers that contradict each other — and **no special case was
+added for any of them**. See
+[`docs/business-rules/classification-rules.md`](docs/business-rules/classification-rules.md).
+
+Phase 1 behaviour is unchanged; its 120 tests pass untouched. Test count
+120 → 240.
+
 ### Changed — architecture refactor
 
 Restructured the flat `src/mdr_engine/` package into a layered full-stack

@@ -1,6 +1,6 @@
 # Data Flow
 
-The conceptual end-to-end MDR flow. **Only the first four stages exist.**
+The conceptual end-to-end MDR flow. **Only the first five stages exist.**
 Everything below the line marked NOT IMPLEMENTED is a placeholder describing
 intent, not behaviour.
 
@@ -22,10 +22,11 @@ intent, not behaviour.
         │
 ────────┼──────────────────────────────────────────── Phase 1 ends here
         ▼
-  Classification       ❌ NOT IMPLEMENTED  (Phase 2)  engine/classification
-        │
+  Classification       ✅ IMPLEMENTED   engine/classification   (Phase 2A)
+        │              DOC TYPE only
+────────┼──────────────────────────────────────────── Phase 2A ends here
         ▼
-  SOW / IDB            ❌ NOT IMPLEMENTED  (Phase 3)  engine/sow, engine/idb
+  SOW / IDB            ❌ NOT IMPLEMENTED  (Phase 2B/3)  engine/sow, engine/idb
         │
         ▼
   Received Check       ❌ NOT IMPLEMENTED  (Phase 4)  engine/received
@@ -95,23 +96,30 @@ See [DECISION_LOG.md](DECISION_LOG.md) for the evidence behind each rule.
 
 ---
 
+### 4. Classification ✅ — Phase 2A
+
+**In:** `document_number` and `document_title` — nothing else.
+**Rules:** `data/rules/INPUT-KEYWORDS  FOR MDR TOOL.xlsx`, sheets
+`REQUIRED-KEY DOC.WORDS` (82 rules) and `NOT REQUIRED-KEY DOC.WORDS` (100).
+The `DOCUMENT TYPE` and `FOLDER-UPDATE` sheets are **not read** — they carry
+SOW strings and folder notes, which are later phases.
+
+Keywords match as substrings; `*` is a wildcard, ` or ` is alternation, and a
+run of X's in a document-number keyword means digits. Required rules outrank
+not-required ones, then workbook row order decides. Every matching rule is
+retained, not just the winner.
+
+**Out:** `doc_type` and `doc_type_rule` on every `DocumentRecord`, empty when
+no rule covers the document. The classifier never guesses.
+
+**Package:** `engine/classification/` — `rules.py`, `classifier.py`.
+Rules and precedence: [../business-rules/classification-rules.md](../business-rules/classification-rules.md).
+
+---
+
 ## Not implemented
 
-### 4. Classification ❌ — Phase 2
-
-Intended to assign `DOC TYPE` from the rules workbook
-(`data/rules/INPUT-KEYWORDS FOR MDR TOOL.xlsx`) against the document title.
-
-Nothing reads that workbook today. It was profiled during Phase 1 and loads
-cleanly: `REQUIRED-KEY DOC.WORDS` (83 rows), `DOCUMENT TYPE` (22 types with
-DOKAR codes and SOW strings), `NOT REQUIRED-KEY DOC.WORDS` (101 rows),
-`FOLDER-UPDATE` (6). Note it already uses glob syntax (`*P&ID*LEGEND*`) and an
-inline `or` (`LIGHTING LAYOUT or LIGHTNING LAYOUT`) that a parser will need to
-handle.
-
-**Package:** `engine/classification/` — empty.
-
-### 5. SOW / IDB ❌ — Phase 3
+### 5. SOW / IDB ❌ — Phase 2B/3
 
 Intended to determine `DOC IS REQUIRED SOW` and `DOC IDB COMPLETED STATUS`.
 
@@ -128,28 +136,34 @@ inventing a Phase 4 vocabulary with no evidence behind it.
 
 ### 7. Validation ⚠️ PARTIAL
 
-`engine/validation/latest.py` exists and validates **one thing**: the
-latest-revision decision, against the workbook's own `LATEST/ NOT LATEST`
-column. Validation of classification, SOW, IDB and check status does not exist
-because those stages do not exist.
+Two things are validated, each against a manually maintained column:
+
+| Module | Validates | Against |
+|---|---|---|
+| `engine/validation/latest.py` | latest-revision decision | `LATEST/ NOT LATEST` |
+| `engine/validation/doc_type.py` | DOC TYPE | column AL of `QatarEnergy-TN WORKING` |
+
+Validation of SOW, IDB and check status does not exist because those stages do
+not exist.
 
 ### 8. Output ⚠️ PARTIAL
 
-`services/export_service.py` writes the Phase 1 machine-readable result:
+`services/export_service.py` writes the machine-readable result:
 
 | Artefact | Contents |
 |---|---|
 | `mdr_phase1_result.json` | Full result + summary + discovery |
-| `documents.csv` | One row per QatarEnergy-TN document row |
+| `documents.csv` | One row per QatarEnergy-TN document row, `doc_type` included |
 | `vendor_rows.csv` | Vendor rows with match status/method |
 | `exceptions.csv` | Rows needing human review |
 | `validation_report.json` | Comparison vs the workbook's own L/NL column |
+| `doc_type_report.json` | Comparison vs column AL, with mismatch causes |
 
-**Excel MDR output generation is Phase 5 and does not exist.** The five MDR
-columns (`DOC WITH REV`, `DOC TYPE`, `DOC IS REQUIRED SOW`,
-`DOC IDB COMPLETED STATUS`, `CHECK STATUS`) found at AK–AO of the reference
-workbook's `QatarEnergy-TN WORKING` sheet are Phase 2+ outputs. Phase 1
-populates none of them.
+**Excel MDR output generation is Phase 5 and does not exist.** Of the five MDR
+columns at AK–AO of the reference workbook's `QatarEnergy-TN WORKING` sheet,
+only `DOC TYPE` is produced, and only into JSON/CSV. `DOC WITH REV`,
+`DOC IS REQUIRED SOW`, `DOC IDB COMPLETED STATUS` and `CHECK STATUS` are not
+produced at all, and no `.xlsx` is ever written.
 
 ---
 

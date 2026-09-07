@@ -96,7 +96,7 @@ exists, and none should be created until its phase begins.
 | `GET /api/mdr/documents` | 7 | Pagination, filtering |
 | `GET /api/mdr/exceptions` | 7 | Pagination |
 | `GET /api/mdr/export/xlsx` | 5 | Excel writer (`engine`/`infrastructure`) |
-| `POST /api/mdr/classify` | 2 | `engine/classification` |
+| `POST /api/mdr/classify` | 7 | Nothing further — `engine/classification` exists; no endpoint was added for it |
 | `GET /api/mdr/check-status` | 4 | `engine/received` |
 | `POST /api/auth/*` | 7 | Authentication — none exists today |
 

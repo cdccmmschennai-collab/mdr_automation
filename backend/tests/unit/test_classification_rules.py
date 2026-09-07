@@ -79,9 +79,16 @@ class TestLiteralMatching:
         r = rule(NOT_APPLICABLE, "CROSS SECTION", "MXS")
         assert r.match("", "PUMP CROSS SECTIONAL DRAWING - NGL-1")
 
-    def test_match_is_case_insensitive(self):
+    def test_match_expects_already_normalised_text(self):
+        """`KeywordRule.match` is the hot inner loop and does not re-normalise.
+
+        The classifier normalises once per document; case-insensitivity is
+        tested there, in `test_classifier.py::TestInputNormalisation`.
+        """
         r = rule(NOT_APPLICABLE, "DATA SHEET", "MDS")
-        assert r.match("", "process data sheet for irrigation tank")
+        raw = "process data sheet for irrigation tank"
+        assert r.match("", raw) == []
+        assert r.match("", normalise(raw))
 
     def test_non_matching_title_yields_nothing(self):
         r = rule(NOT_APPLICABLE, "LOOP DIAGRAM", "MLP")

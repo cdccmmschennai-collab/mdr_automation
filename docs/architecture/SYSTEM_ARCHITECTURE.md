@@ -1,7 +1,7 @@
 # System Architecture
 
-**Status:** Phase 1 implemented. Phases 2–7 are not implemented; the packages
-reserved for them are empty.
+**Status:** Phase 1 and Phase 2A (DOC TYPE classification) implemented.
+Phases 2B–7 are not implemented; the packages reserved for them are empty.
 
 ---
 
@@ -106,11 +106,14 @@ engine/
 │   ├── eligibility.py     what removes a row from latest candidacy
 │   ├── ranking.py         latest determination within a group
 │   └── status_codes.py    Status Codes sheet → ReviewCode / IssueCode
+├── classification/    DOC TYPE from the keyword rules      (Phase 2A)
+│   ├── rules.py           keyword syntax, rule model, precedence
+│   └── classifier.py      number + title → DocumentClassification
 ├── validation/
-│   └── latest.py          comparison against the workbook's L/NL column
-├── classification/    (Phase 2 — empty)
-├── sow/               (Phase 3 — empty)
-├── idb/               (Phase 3 — empty)
+│   ├── latest.py          comparison against the workbook's L/NL column
+│   └── doc_type.py        comparison against column AL, by root cause
+├── sow/               (Phase 2B/3 — empty)
+├── idb/               (Phase 2B/3 — empty)
 └── received/          (Phase 4 — empty)
 ```
 
@@ -122,8 +125,10 @@ There is no `utils.py`, `helpers.py`, `common.py` or `misc.py`, by design.
 infrastructure/
 ├── excel/
 │   ├── workbook_reader.py  generic read-only sheet/column discovery by header
-│   └── mdr_workbook.py     the MDR adapter: sheet names, header captions,
-│                           named source rows
+│   ├── mdr_workbook.py     the MDR adapter: sheet names, header captions,
+│   │                       named source rows
+│   ├── rules_workbook.py   the keyword-rules adapter          (Phase 2A)
+│   └── reference_workbook.py  the ground-truth working sheet  (Phase 2A)
 ├── filesystem/
 │   └── artifact_writer.py  JSON/CSV serialisation mechanics
 └── storage/                (Phase 7 — empty)
@@ -144,6 +149,8 @@ Orchestration between the entry points and the engine. Holds no rule of its own
 beyond assembly order.
 
 - `mdr_pipeline.py` — `MdrEngine`: load → normalise → sequence → classify → emit
+- `classification_service.py` — builds the DOC TYPE classifier from the rules
+  workbook, and runs it against the reference sheet for validation
 - `export_service.py` — which artefacts are published, and under what name
 
 ### API — `backend/app/api/`

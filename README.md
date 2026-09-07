@@ -1,10 +1,17 @@
 # MDR Automation Tool
 
 Deterministic engine that reads the MDR workbooks, normalises document
-identities, consolidates `QatarEnergy-TN` with `TN FROM VENDORS`, interprets
-Status Codes, sequences revisions and determines the latest revision.
+identities, resolves `TN FROM VENDORS` rows against `QatarEnergy-TN`, interprets
+Status Codes, sequences revisions, determines the latest revision, and assigns
+each document its `DOC TYPE` from the keyword rules workbook.
 
-**Phase 1 is complete and validated. Phases 2–7 are not implemented.**
+**Phase 1 and Phase 2A (DOC TYPE) are complete and validated. Phases 2B–7 are
+not implemented** — no SOW, no IDB, no CHECK STATUS, no received-document
+processing, no Excel output, no MDR frontend.
+
+The vendor sheet is **not** consolidated into the document universe; the
+processing universe is `QatarEnergy-TN` only
+(`settings.vendor_consolidation_enabled` is `False`).
 
 **The source workbooks are never modified.** Every workbook is opened
 read-only, and a test asserts the file hash and mtime are unchanged by a run.
@@ -60,11 +67,19 @@ Output lands in `data/output/latest/`:
 | `vendor_rows.csv` | Vendor rows with match status/method |
 | `exceptions.csv` | Rows needing human review |
 | `validation_report.json` | Comparison vs the workbook's own L/NL column |
+| `doc_type_report.json` | DOC TYPE vs the reference column AL, by root cause |
 
 Each document record carries `document_identity`, `qatarenergy_document_no`,
 `revision`, `issue_code`, `review_code`, `revision_type`, `revision_rank`,
-`is_latest_revision`, `revision_status`, `match_status`, `match_method` and a
-`reason` explaining the decision.
+`is_latest_revision`, `revision_status`, `match_status`, `match_method`,
+`doc_type`, `doc_type_rule` and a `reason` explaining the decision.
+
+### Validating a phase
+
+```bash
+python scripts/validate_phase.py --phase 1               # latest revision
+python scripts/validate_phase.py --phase 2 --out data/output/latest   # DOC TYPE
+```
 
 ### API
 
@@ -89,7 +104,7 @@ npm run build
 
 ```bash
 cd backend
-python -m pytest tests            # 120 tests
+python -m pytest tests            # 240 tests (120 Phase 1 + 120 Phase 2A)
 ```
 
 Integration and regression suites skip automatically when the workbooks are
@@ -104,10 +119,22 @@ All paths resolve through `backend/app/core/config.py`. Copy `.env.example` to
 
 ## Results
 
+**Phase 1 — latest revision**
+
 - **0 genuine conflicts** against the workbook's own `LATEST/ NOT LATEST` column
 - 97.58 % raw agreement; every disagreement has an identified root cause
 - 79 rows where the engine is right and the manual workbook is stale
 - 262 unlabelled rows the engine resolves — the manual backlog
+
+**Phase 2A — DOC TYPE**
+
+- **76.40 %** exact agreement (2,564 of 3,356) with column AL of the reference
+  `QatarEnergy-TN WORKING` sheet
+- The other 18,016 rows of that column hold scope-of-work and revision verdicts
+  (`OLD REV NOT SOW`, `NOT SOW`, `OTHER`), which no keyword rule can produce
+- Every mismatch is grouped by root cause; **no special case was added per
+  mismatch** — see
+  [classification-rules.md](docs/business-rules/classification-rules.md)
 
 ---
 
@@ -118,9 +145,9 @@ All paths resolve through `backend/app/core/config.py`. Copy `.env.example` to
 | [SYSTEM_ARCHITECTURE](docs/architecture/SYSTEM_ARCHITECTURE.md) | Layering, dependency rules, module map |
 | [DATA_FLOW](docs/architecture/DATA_FLOW.md) | End-to-end flow, with unimplemented stages marked |
 | [API_ARCHITECTURE](docs/architecture/API_ARCHITECTURE.md) | The API boundary and what it may not do |
-| [DECISION_LOG](docs/architecture/DECISION_LOG.md) | Every Phase 1 decision, with its evidence |
+| [DECISION_LOG](docs/architecture/DECISION_LOG.md) | Every decision, with its evidence |
 | [MDR_BUSINESS_RULES](docs/business-rules/MDR_BUSINESS_RULES.md) | Full Phase 1 evidence base |
-| [document-identity](docs/business-rules/document-identity.md) · [revision-rules](docs/business-rules/revision-rules.md) | The implemented rules |
+| [document-identity](docs/business-rules/document-identity.md) · [revision-rules](docs/business-rules/revision-rules.md) · [classification-rules](docs/business-rules/classification-rules.md) | The implemented rules |
 | [docs/phases/](docs/phases/) | Per-phase status |
 
 The decision log records one candidate rule that was **tested and rejected**,
@@ -129,9 +156,10 @@ left unchanged.
 
 ---
 
-## Not in Phase 1
+## Not implemented
 
-DOC TYPE classification, SOW, IDB, CHECK STATUS / received-document dump, Excel
-MDR output, the employee workflow, authentication, job queue, deployment.
+SOW, IDB, CHECK STATUS / received-document dump, vendor consolidation, Excel
+MDR output, the MDR frontend, the employee workflow, authentication, job queue,
+deployment.
 
 No AI/LLM is used anywhere — every decision is deterministic and explainable.
