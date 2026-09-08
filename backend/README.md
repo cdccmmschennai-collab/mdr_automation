@@ -3,8 +3,9 @@
 The MDR engine, the domain it operates on, the Excel/filesystem adapters that
 feed it, and the HTTP boundary that exposes it.
 
-**Phase 1 and Phase 2A (DOC TYPE) only.** Phases 2B–7 are not implemented;
-`engine/sow`, `engine/idb` and `engine/received` are empty.
+**Phase 1, Phase 2A (DOC TYPE) and Phase 2B (DOC IS REQUIRED SOW) only.**
+Phase 2C onwards is not implemented; `engine/idb` and `engine/received` are
+empty, and nothing writes an Excel file.
 
 ---
 
@@ -66,7 +67,7 @@ only.** See
 ## Test
 
 ```bash
-python -m pytest tests                 # 240 tests (120 Phase 1 + 120 Phase 2A)
+python -m pytest tests                 # 410 tests (120 Phase 1, 120 Phase 2A, 170 Phase 2B)
 python -m pytest tests/unit            # rules in isolation, no I/O
 python -m pytest tests/regression      # real-world cases that must not regress
 ```

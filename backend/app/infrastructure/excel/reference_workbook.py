@@ -5,9 +5,14 @@ manually maintained sheet the tool automates. Its `DOC TYPE` column is Phase
 2A's ground truth - read here, never written, and never fed back into the
 classifier as an input.
 
-Only the columns the DOC TYPE comparison needs are read. `DOC IS REQUIRED SOW`,
-`DOC IDB COMPLETED STATUS` and `CHECK STATUS` are later phases and are
-deliberately not read.
+Only the columns the DOC TYPE and SOW comparisons need are read.
+`DOC IDB COMPLETED STATUS` (AN) and `CHECK STATUS` (AO) are later phases and
+are deliberately not read at all.
+
+`DOC IS REQUIRED SOW` (AM) is read, and read for one purpose only: it is
+Phase 2B's *expected* answer. It reaches `engine.validation.sow` and stops
+there. The SOW resolver's signature takes a DOC TYPE and nothing else, so
+there is no path by which column AM can influence the value Phase 2B computes.
 
 Opened read-only; never written to.
 """
@@ -23,7 +28,8 @@ WORKING_SHEET = ("QatarEnergy-TN WORKING",)
 
 #: Headers used to score which row is the header row.
 WORKING_EXPECTED = ["DOCUMENT NO.", "REV", "DOCUMENT TITLE",
-                    "LATEST/ NOT LATEST", "DOC WITH REV", "DOC TYPE"]
+                    "LATEST/ NOT LATEST", "DOC WITH REV", "DOC TYPE",
+                    "DOC IS REQUIRED SOW"]
 
 
 @dataclass(frozen=True)
@@ -37,8 +43,12 @@ class ReferenceRow:
     final_issue_code: str = ""
     latest_flag: str = ""
     doc_with_rev: str = ""
-    #: Column AL - the manual DOC TYPE this phase is validated against.
+    #: Column AL - the manual DOC TYPE Phase 2A is validated against, and the
+    #: DOC TYPE the Phase 2B comparison feeds to the SOW resolver.
     doc_type: str = ""
+    #: Column AM - the manual DOC IS REQUIRED SOW. Phase 2B's expected answer,
+    #: never an input to the resolver.
+    reference_sow: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,7 @@ class ReferenceWorkbookReader:
         c_latest = table.index("LATEST/ NOT LATEST", required=False)
         c_docrev = table.index("DOC WITH REV", required=False)
         c_type = table.index("DOC TYPE")
+        c_sow = table.index("DOC IS REQUIRED SOW", required=False)
 
         rows = [
             ReferenceRow(
@@ -77,6 +88,7 @@ class ReferenceWorkbookReader:
                 latest_flag=table.value(row, c_latest).upper(),
                 doc_with_rev=table.value(row, c_docrev),
                 doc_type=table.value(row, c_type),
+                reference_sow=table.value(row, c_sow),
             )
             for i, row in enumerate(table.rows)
         ]

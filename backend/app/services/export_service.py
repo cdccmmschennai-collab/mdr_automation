@@ -3,8 +3,8 @@
 Decides *what* is published and under which filename; the mechanics of writing
 live in `infrastructure.filesystem.artifact_writer`.
 
-Phases 1 and 2A emit JSON and CSV only. Excel MDR output is Phase 5 and is not
-implemented here: nothing in this module writes an .xlsx file.
+Phases 1, 2A and 2B emit JSON and CSV only. Excel MDR output is a later phase
+and is not implemented here: nothing in this module writes an .xlsx file.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pathlib import Path
 from ..domain.models.mdr_result import EngineResult
 from ..engine.validation.doc_type import DocTypeReport
 from ..engine.validation.latest import ValidationReport
+from ..engine.validation.sow import SowReport
 from ..infrastructure.filesystem.artifact_writer import (
     public_fields, write_csv, write_json,
 )
@@ -24,6 +25,7 @@ VENDOR_ROWS_CSV = "vendor_rows.csv"
 EXCEPTIONS_CSV = "exceptions.csv"
 VALIDATION_JSON = "validation_report.json"
 DOC_TYPE_JSON = "doc_type_report.json"
+SOW_JSON = "sow_report.json"
 
 
 def result_payload(result: EngineResult) -> dict:
@@ -62,5 +64,12 @@ def export_validation_report(report: ValidationReport, outdir: Path) -> Path:
 def export_doc_type_report(report: DocTypeReport, outdir: Path) -> Path:
     """Write the Phase 2A DOC TYPE comparison report."""
     path = Path(outdir) / DOC_TYPE_JSON
+    write_json(report.to_dict(), path)
+    return path
+
+
+def export_sow_report(report: SowReport, outdir: Path) -> Path:
+    """Write the Phase 2B DOC IS REQUIRED SOW comparison report."""
+    path = Path(outdir) / SOW_JSON
     write_json(report.to_dict(), path)
     return path

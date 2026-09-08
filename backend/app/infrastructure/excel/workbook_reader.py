@@ -43,6 +43,10 @@ class SheetTable:
     headers: list[str] = field(default_factory=list)
     rows: list[tuple] = field(default_factory=list)         # data rows only
     first_data_row: int = 0                                 # 1-based Excel row
+    #: 1-based Excel row number of each entry in `rows`. Wholly empty rows are
+    #: dropped from `rows`, so position alone would drift past a spacer row -
+    #: the `DOCUMENT TYPE` sheet has one directly under its header.
+    row_numbers: list[int] = field(default_factory=list)
 
     def index(self, *header_names: str, required: bool = True) -> Optional[int]:
         """Resolve the 0-based column index for the first header that matches.
@@ -73,6 +77,8 @@ class SheetTable:
 
     def excel_row_number(self, i: int) -> int:
         """1-based Excel row number for data row i."""
+        if 0 <= i < len(self.row_numbers):
+            return self.row_numbers[i]
         return self.first_data_row + i
 
 
@@ -133,12 +139,19 @@ def read_table(path: Path, sheet_candidates: Sequence[str],
                 if k and k not in columns:      # first occurrence wins
                     columns[k] = idx
 
-        rows = [r for r in ws.iter_rows(min_row=header_row + 1, values_only=True)
-                if any(c is not None and clean(c) for c in r)]
+        rows: list[tuple] = []
+        row_numbers: list[int] = []
+        for n, r in enumerate(ws.iter_rows(min_row=header_row + 1,
+                                           values_only=True),
+                              start=header_row + 1):
+            if any(c is not None and clean(c) for c in r):
+                rows.append(r)
+                row_numbers.append(n)
 
         return SheetTable(name=name, header_row=header_row, columns=columns,
                           headers=headers, rows=rows,
-                          first_data_row=header_row + 1)
+                          first_data_row=header_row + 1,
+                          row_numbers=row_numbers)
     finally:
         wb.close()
 

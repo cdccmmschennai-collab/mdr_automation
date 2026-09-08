@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Phase 2B: DOC IS REQUIRED SOW
+
+The DOC TYPE decided by Phase 2A now resolves to a scope-of-work value.
+**SOW only** — IDB, CHECK STATUS and the received dump remain unimplemented,
+and nothing writes an Excel file.
+
+- `engine/sow/` — `rules.py` (the `DOCUMENT TYPE` sheet's 22 DOKAR → SOW
+  mappings, keyed on either the DOKAR or the document-type name the same row
+  states) and `resolver.py` (the verdict). The resolver's entire input is a
+  DOC TYPE: it never sees a document number, a title, or column AM/AN/AO.
+- `domain/models/sow.py` — `SowRequirement`. `is_required` is three-valued, so
+  an uncovered DOC TYPE cannot read as the business statement `NO`.
+- `engine/validation/sow.py` — comparison against column AM of
+  `QatarEnergy-TN WORKING`, with mismatches grouped by root cause.
+- `services/sow_service.py`, `export_sow_report`, and
+  `scripts/validate_phase.py --phase 2b`.
+- `SheetTable` now records each data row's true Excel row number; the
+  `DOCUMENT TYPE` sheet has a blank spacer row that position alone drifts past.
+
+**`OLD REV NOT SOW` and `NOT SOW` resolve to `NO`** — exceptionless across
+13,582 reference rows. Both are consumed as verdicts; Phase 2B contains no
+old-revision logic of its own. `OTHER` is deliberately not treated the same
+way: it reads `NO` in 4,237 rows and `YES-…` in 174, so it states no rule.
+
+**93.92% agreement** with column AM over the 15,977 rows where both sides
+state a value (15,005 matches, 972 mismatches). The mismatches are reported,
+not patched: the rules workbook and the working sheet flatly disagree over
+whether five SOW strings contain `/HIERARCHY` (166 rows, zero agreement on
+those DOKARs), column AM overrides 391 in-scope rows to `NO` on a distinction
+DOC TYPE does not predict, and MOM's rule value never occurs in the sheet at
+all. No per-document exception was hard-coded. See
+`docs/business-rules/sow-rules.md` for the six open questions.
+
 ### Added — Phase 2A: DOC TYPE classification
 
 Documents are now classified from the keyword rules workbook

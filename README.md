@@ -68,6 +68,7 @@ Output lands in `data/output/latest/`:
 | `exceptions.csv` | Rows needing human review |
 | `validation_report.json` | Comparison vs the workbook's own L/NL column |
 | `doc_type_report.json` | DOC TYPE vs the reference column AL, by root cause |
+| `sow_report.json` | DOC IS REQUIRED SOW vs the reference column AM, by root cause |
 
 Each document record carries `document_identity`, `qatarenergy_document_no`,
 `revision`, `issue_code`, `review_code`, `revision_type`, `revision_rank`,
@@ -79,6 +80,7 @@ Each document record carries `document_identity`, `qatarenergy_document_no`,
 ```bash
 python scripts/validate_phase.py --phase 1               # latest revision
 python scripts/validate_phase.py --phase 2 --out data/output/latest   # DOC TYPE
+python scripts/validate_phase.py --phase 2b --out data/output/latest  # SOW
 ```
 
 ### API
