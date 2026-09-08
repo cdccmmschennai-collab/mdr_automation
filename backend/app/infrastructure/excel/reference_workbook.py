@@ -5,14 +5,17 @@ manually maintained sheet the tool automates. Its `DOC TYPE` column is Phase
 2A's ground truth - read here, never written, and never fed back into the
 classifier as an input.
 
-Only the columns the DOC TYPE and SOW comparisons need are read.
-`DOC IDB COMPLETED STATUS` (AN) and `CHECK STATUS` (AO) are later phases and
-are deliberately not read at all.
+Only the columns the DOC TYPE, SOW and IDB comparisons need are read.
+`CHECK STATUS` (AO) belongs to a later phase and is deliberately not read at
+all.
 
-`DOC IS REQUIRED SOW` (AM) is read, and read for one purpose only: it is
-Phase 2B's *expected* answer. It reaches `engine.validation.sow` and stops
-there. The SOW resolver's signature takes a DOC TYPE and nothing else, so
-there is no path by which column AM can influence the value Phase 2B computes.
+`DOC IS REQUIRED SOW` (AM) and `DOC IDB COMPLETED STATUS` (AN) are read, and
+read for one purpose only: they are the *expected* answers of Phases 2B and
+2C. AM reaches `engine.validation.sow` and AN reaches
+`engine.validation.idb`, and both stop there. The SOW resolver's signature
+takes a DOC TYPE and nothing else, and the IDB resolver's takes that DOC
+TYPE's `SowRequirement`, so there is no path by which either column can
+influence the value the engine computes.
 
 Opened read-only; never written to.
 """
@@ -29,7 +32,7 @@ WORKING_SHEET = ("QatarEnergy-TN WORKING",)
 #: Headers used to score which row is the header row.
 WORKING_EXPECTED = ["DOCUMENT NO.", "REV", "DOCUMENT TITLE",
                     "LATEST/ NOT LATEST", "DOC WITH REV", "DOC TYPE",
-                    "DOC IS REQUIRED SOW"]
+                    "DOC IS REQUIRED SOW", "DOC IDB COMPLETED STATUS"]
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,9 @@ class ReferenceRow:
     #: Column AM - the manual DOC IS REQUIRED SOW. Phase 2B's expected answer,
     #: never an input to the resolver.
     reference_sow: str = ""
+    #: Column AN - the manual DOC IDB COMPLETED STATUS. Phase 2C's expected
+    #: answer, never an input to either resolver.
+    reference_idb: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,7 @@ class ReferenceWorkbookReader:
         c_docrev = table.index("DOC WITH REV", required=False)
         c_type = table.index("DOC TYPE")
         c_sow = table.index("DOC IS REQUIRED SOW", required=False)
+        c_idb = table.index("DOC IDB COMPLETED STATUS", required=False)
 
         rows = [
             ReferenceRow(
@@ -89,6 +96,7 @@ class ReferenceWorkbookReader:
                 doc_with_rev=table.value(row, c_docrev),
                 doc_type=table.value(row, c_type),
                 reference_sow=table.value(row, c_sow),
+                reference_idb=table.value(row, c_idb),
             )
             for i, row in enumerate(table.rows)
         ]

@@ -26,7 +26,11 @@ intent, not behaviour.
         │              DOC TYPE only
 ────────┼──────────────────────────────────────────── Phase 2A ends here
         ▼
-  SOW / IDB            ❌ NOT IMPLEMENTED  (Phase 2B/3)  engine/sow, engine/idb
+  SOW                  ✅ IMPLEMENTED   engine/sow              (Phase 2B)
+        │
+        ▼
+  IDB                  ✅ IMPLEMENTED   engine/idb              (Phase 2C)
+        │              requirement only; the check outcome is an input
         │
         ▼
   Received Check       ❌ NOT IMPLEMENTED  (Phase 4)  engine/received
@@ -117,15 +121,32 @@ Rules and precedence: [../business-rules/classification-rules.md](../business-ru
 
 ---
 
+### 5. SOW ✅ — Phase 2B
+
+`DOC IS REQUIRED SOW` from the DOC TYPE, using the rules workbook's
+`DOCUMENT TYPE` sheet (22 DOKAR → SOW rows) plus the two self-stating
+verdicts `OLD REV NOT SOW` and `NOT SOW`, which resolve to `NO`.
+
+**Package:** `engine/sow/`. **Input:** a DOC TYPE, and nothing else.
+Rules and precedence: [../business-rules/sow-rules.md](../business-rules/sow-rules.md).
+
+### 6. IDB ✅ — Phase 2C
+
+`DOC IDB COMPLETED STATUS` from the SOW verdict. Out of scope resolves to
+`NO NEED TO CHECK`; in scope resolves to the outcome a completion source
+states, or `TO BE CHECK` when none has. An unresolved SOW yields `UNMAPPED`.
+
+**Package:** `engine/idb/`. **Input:** a `SowRequirement`, plus an optional
+recorded check outcome. **Not implemented:** the completion source itself —
+the IDB folder and the FMTL are not in the repository, so every in-scope
+document currently resolves to `TO BE CHECK`.
+Rules and evidence: [../business-rules/idb-rules.md](../business-rules/idb-rules.md).
+
+---
+
 ## Not implemented
 
-### 5. SOW / IDB ❌ — Phase 2B/3
-
-Intended to determine `DOC IS REQUIRED SOW` and `DOC IDB COMPLETED STATUS`.
-
-**Packages:** `engine/sow/`, `engine/idb/` — empty.
-
-### 6. Received Check ❌ — Phase 4
+### 7. Received Check ❌ — Phase 3A/3B
 
 Intended to reconcile against the received-document dump and derive
 `CHECK STATUS`.
@@ -134,7 +155,7 @@ Intended to reconcile against the received-document dump and derive
 There is no `check_status.py` in `domain/enums/`: writing one now would be
 inventing a Phase 4 vocabulary with no evidence behind it.
 
-### 7. Validation ⚠️ PARTIAL
+### 8. Validation ⚠️ PARTIAL
 
 Two things are validated, each against a manually maintained column:
 
@@ -142,11 +163,12 @@ Two things are validated, each against a manually maintained column:
 |---|---|---|
 | `engine/validation/latest.py` | latest-revision decision | `LATEST/ NOT LATEST` |
 | `engine/validation/doc_type.py` | DOC TYPE | column AL of `QatarEnergy-TN WORKING` |
+| `engine/validation/sow.py` | DOC IS REQUIRED SOW | column AM of the same sheet |
+| `engine/validation/idb.py` | DOC IDB COMPLETED STATUS | column AN of the same sheet |
 
-Validation of SOW, IDB and check status does not exist because those stages do
-not exist.
+Validation of check status does not exist because that stage does not exist.
 
-### 8. Output ⚠️ PARTIAL
+### 9. Output ⚠️ PARTIAL
 
 `services/export_service.py` writes the machine-readable result:
 
@@ -158,12 +180,14 @@ not exist.
 | `exceptions.csv` | Rows needing human review |
 | `validation_report.json` | Comparison vs the workbook's own L/NL column |
 | `doc_type_report.json` | Comparison vs column AL, with mismatch causes |
+| `sow_report.json` | Comparison vs column AM, with mismatch causes |
+| `idb_report.json` | Comparison vs column AN, with mismatch causes |
 
-**Excel MDR output generation is Phase 5 and does not exist.** Of the five MDR
+**Excel MDR output generation is Phase 2D and does not exist.** Of the five MDR
 columns at AK–AO of the reference workbook's `QatarEnergy-TN WORKING` sheet,
-only `DOC TYPE` is produced, and only into JSON/CSV. `DOC WITH REV`,
-`DOC IS REQUIRED SOW`, `DOC IDB COMPLETED STATUS` and `CHECK STATUS` are not
-produced at all, and no `.xlsx` is ever written.
+`DOC TYPE`, `DOC IS REQUIRED SOW` and `DOC IDB COMPLETED STATUS` are produced,
+and only into JSON/CSV. `DOC WITH REV` and `CHECK STATUS` are not produced at
+all, and no `.xlsx` is ever written.
 
 ---
 

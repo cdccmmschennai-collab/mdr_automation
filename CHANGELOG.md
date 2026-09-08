@@ -5,6 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Phase 2C: DOC IDB COMPLETED STATUS
+
+The scope verdict decided by Phase 2B now resolves to an IDB status.
+**IDB only** — CHECK STATUS, the received dump and the Excel output remain
+unimplemented, and nothing writes an `.xlsx` file.
+
+- `engine/idb/` — `rules.py` (the two rules reverse-engineered from column AN,
+  plus the scope and outcome readers) and `resolver.py` (`IdbResolver`).
+  Neither opens a file: no sheet of the rules workbook states an IDB status,
+  so the rules are stated in code with their evidence cited.
+- `domain/models/idb.py` — `IdbStatus`. `check_required` is three-valued, so
+  an unresolved document cannot read as one needing no check. The vocabulary
+  is the nine values column AN actually carries, plus `UNMAPPED`.
+- `engine/validation/idb.py` — comparison against column AN of
+  `QatarEnergy-TN WORKING`, with an eight-way mismatch taxonomy and two rates:
+  exact agreement and "is a check due?" agreement.
+- `services/idb_service.py`, `export_idb_report`, and
+  `scripts/validate_phase.py --phase 2c`.
+- `ReferenceRow.reference_idb` — column AN, read as the expected value only.
+
+**Out of scope means no check is due** — `NO NEED TO CHECK` on 18,704 of the
+18,706 rows whose SOW reads `NO`, exceptionless through every other column,
+including all 300 cancelled submissions. All 9,934 `OLD REV NOT SOW` rows are
+covered by it, which is the only route by which revision affects IDB: the
+resolver has no revision, latest or cancellation input, and adding one would be
+wrong — 107 of the 127 rows that are in scope but not the latest revision read
+`COMPLETED`.
+
+**In scope means a check is due, and its outcome is an input.** `COMPLETED`,
+`PENDING` and the rest record a check performed against the IDB folder and the
+FMTL; no column in the transmittal log predicts them, and the values track
+sheet position rather than any document property. The resolver accepts a
+recorded outcome and states `TO BE CHECK` when none is supplied — never a
+guessed `COMPLETED`.
+
+97.54% agreement on whether a check is due (15,586 of 15,979 accountable rows);
+85.67% exact agreement with column AN. Only **2** rows question the rules
+themselves — both are rows where the working sheet contradicts its own column
+AM. 5,384 mismatches trace to the Phase 2B rule gap, 1,876 to the missing
+completion source, and 391 to Phase 2B's already-documented column AM override.
+No per-row exception was added. See
+`docs/business-rules/idb-rules.md` for the value-by-value table and the ten
+open questions — chief among them where the completion outcome should come
+from.
+
 ### Added — Phase 2B: DOC IS REQUIRED SOW
 
 The DOC TYPE decided by Phase 2A now resolves to a scope-of-work value.

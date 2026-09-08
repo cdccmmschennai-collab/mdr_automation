@@ -111,9 +111,15 @@ engine/
 │   └── classifier.py      number + title → DocumentClassification
 ├── validation/
 │   ├── latest.py          comparison against the workbook's L/NL column
-│   └── doc_type.py        comparison against column AL, by root cause
-├── sow/               (Phase 2B/3 — empty)
-├── idb/               (Phase 2B/3 — empty)
+│   ├── doc_type.py        comparison against column AL, by root cause
+│   ├── sow.py             comparison against column AM, by root cause
+│   └── idb.py             comparison against column AN, by root cause
+├── sow/               DOC IS REQUIRED SOW from the DOCUMENT TYPE sheet (Phase 2B)
+│   ├── rules.py           the DOKAR → SOW table
+│   └── resolver.py        DOC TYPE → SowRequirement
+├── idb/               DOC IDB COMPLETED STATUS                      (Phase 2C)
+│   ├── rules.py           the two rules column AN evidences
+│   └── resolver.py        SowRequirement → IdbStatus
 └── received/          (Phase 4 — empty)
 ```
 
