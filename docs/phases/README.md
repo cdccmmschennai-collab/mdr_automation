@@ -30,7 +30,8 @@ Excel → PostgreSQL → API → download → Docker → freeze. This scheme res
 | Excel output, `QatarEnergy-TN Automated` sheet | Phase 2D | `phase-05-excel-output` | Phase 1 | done |
 | Received dump, `CHECK STATUS` | Phase 3A/3B | `phase-04-received-check` | — | not implemented |
 | Validation vs the manual columns | — | `phase-06-validation` | — | partial |
-| PostgreSQL + persistence | — | — | Phase 2 | not started |
+| PostgreSQL + persistence | — | `DATABASE_SCHEMA`, `RULE_VERSIONING` | Phase 2 | done |
+| API structure + `/api/v1` contract | — | `API_CONTRACT` | Phase 2 | done (routes return 501) |
 | Upload / process / summary API | — | `phase-07-web-application` | Phase 3 | not started |
 | Excel download endpoint | — | `phase-07-web-application` | Phase 4 | not started |
 | Docker local development | — | — | Phase 5 | not started |

@@ -22,9 +22,30 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 ENV_PREFIX = "MDR_"
 
 
+class DatabaseNotConfigured(RuntimeError):
+    """Raised when persistence is used without a database URL configured."""
+
+
 def _env_path(name: str) -> Optional[Path]:
     value = os.environ.get(ENV_PREFIX + name, "").strip()
     return Path(value).expanduser() if value else None
+
+
+def _database_url() -> Optional[str]:
+    """The PostgreSQL URL, or None when the deployment has not supplied one.
+
+    `MDR_DATABASE_URL` wins over the conventional `DATABASE_URL` so this
+    application's setting can be pinned in an environment that already uses the
+    bare name for something else. There is no default: a URL carries a host, a
+    username and a password, and none of those belong in source control. A
+    backend with no URL still runs - the engine, the CLI and the Excel writer
+    need no database - and only the persistence layer refuses to start.
+    """
+    for name in (ENV_PREFIX + "DATABASE_URL", "DATABASE_URL"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None
 
 
 @dataclass(frozen=True)
@@ -35,6 +56,11 @@ class Settings:
     data_dir: Path
     log_level: str
     cors_origins: tuple[str, ...]
+
+    #: PostgreSQL URL, e.g. `postgresql+psycopg://user:pass@host:5432/mdr`.
+    #: None when unset - see `_database_url`. Nothing outside
+    #: `infrastructure.persistence` reads it.
+    database_url: Optional[str] = None
 
     #: Whether TN FROM VENDORS rows are merged into the QatarEnergy-TN
     #: processing universe. Off for this plant: the current business rule is
@@ -107,6 +133,24 @@ class Settings:
         """
         return _first_workbook(self.rules_dir, _env_path("RULES_WORKBOOK"))
 
+    # -- database ----------------------------------------------------------
+
+    def require_database_url(self) -> str:
+        """The database URL, or a clear failure saying which variable to set.
+
+        Persistence code calls this rather than reading `database_url`
+        directly, so a missing configuration fails at the boundary with an
+        actionable message instead of surfacing as a driver error deeper in.
+        """
+        if not self.database_url:
+            raise DatabaseNotConfigured(
+                "no database URL configured: set MDR_DATABASE_URL (or "
+                "DATABASE_URL), e.g. "
+                "postgresql+psycopg://mdr:***@localhost:5432/mdr - see "
+                ".env.example"
+            )
+        return self.database_url
+
     def default_reference_workbook(self) -> Optional[Path]:
         """The manually prepared working file used to validate DOC TYPE.
 
@@ -141,6 +185,7 @@ def load_settings() -> Settings:
                 ENV_PREFIX + "CORS_ORIGINS", "http://localhost:5173"
             ).split(",") if o.strip()
         ),
+        database_url=_database_url(),
     )
 
 

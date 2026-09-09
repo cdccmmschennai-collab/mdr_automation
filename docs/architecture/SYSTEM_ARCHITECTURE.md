@@ -166,15 +166,32 @@ beyond assembly order.
 
 ### API — `backend/app/api/`
 
-Thin adapters. Phase 1 exposes:
+Thin adapters. Two prefixes: `/api` for operational endpoints, `/api/v1` for
+the product API.
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/health` | Proves the boundary without touching MDR logic |
-| `GET /api/mdr/summary` | Phase 1 summary of the configured workbook |
+| Endpoint | Purpose | Status |
+|---|---|---|
+| `GET /api/health` | Proves the boundary without touching MDR logic | works |
+| `POST /api/v1/mdr/upload` | Create a submission from a workbook | 501 |
+| `POST /api/v1/mdr/{mdr_id}/extract` | Read and normalise it | 501 |
+| `POST /api/v1/mdr/{mdr_id}/automate` | Resolve the automation columns | 501 |
+| `GET /api/v1/mdr/{mdr_id}/summary` | What the run produced | 501 |
+| `GET /api/v1/mdr/{mdr_id}/download` | The automated workbook | 501 |
 
-No endpoint adds a capability the CLI did not already have. See
-[API_ARCHITECTURE.md](API_ARCHITECTURE.md).
+Delivery Phase 2 fixed the paths, methods and response shapes; the behaviour is
+Delivery Phase 3 and 4. No handler touches the database, runs the engine or
+returns a fabricated result. `GET /api/mdr/summary` was removed with the move to
+`/api/v1`. See [API_ARCHITECTURE.md](API_ARCHITECTURE.md) and
+[API_CONTRACT.md](API_CONTRACT.md).
+
+### Persistence — `backend/app/infrastructure/persistence/`
+
+The only code that knows SQL exists. PostgreSQL 16, SQLAlchemy 2.0, psycopg 3,
+Alembic; five tables; one repository per aggregate; explicit transactions owned
+by the caller. The engine and domain packages are forbidden from importing
+SQLAlchemy by an architecture test — PostgreSQL was added *around* the MDR
+processing, not into it. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) and
+[RULE_VERSIONING.md](RULE_VERSIONING.md).
 
 ### Frontend — `frontend/`
 
@@ -205,8 +222,12 @@ data/input/current/*.xlsx
         │
         ├─▶ export_service ─▶ data/output/latest/*.json, *.csv
         ├─▶ validate_latest ─▶ validation_report.json
-        └─▶ GET /api/mdr/summary
+        └─▶ submission_service ─▶ repositories ─▶ PostgreSQL
 ```
+
+The PostgreSQL branch is Delivery Phase 2: given an `AutomationRun` the engine
+produced, `submission_service` stores the submission, its rows, its summary and
+the rule set that produced them. No API endpoint drives it yet.
 
 The conceptual end-to-end flow, including the unimplemented phases, is in
 [DATA_FLOW.md](DATA_FLOW.md).

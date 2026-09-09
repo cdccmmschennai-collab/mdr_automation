@@ -5,6 +5,89 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Delivery Phase 2: PostgreSQL persistence and the `/api/v1` contract
+
+*Delivery* Phase 2 — the PostgreSQL row in `docs/phases/README.md`. Not the
+document phase of the same number, which is DOC TYPE classification and was
+finished long ago.
+
+Results now survive the run that produced them, and stay explainable after the
+rules change.
+
+**Persistence.** PostgreSQL 16, SQLAlchemy 2.0, psycopg 3, Alembic. Five
+tables: `plants`, `rule_sets`, `mdr_submissions`, `mdr_document_rows`,
+`mdr_processing_summaries` — see `docs/architecture/DATABASE_SCHEMA.md`. Small
+on purpose: the workbook has ~70 columns and remains the authority for the ones
+the product does not query.
+
+- `infrastructure/persistence/` — the only code in the backend that knows SQL
+  exists. `models.py`, `database.py` (engine, sessions, explicit transactions),
+  and one repository per aggregate. No repository commits and none swallows a
+  database error; the caller owns the transaction, so a submission's rows and
+  its summary are written atomically or not at all.
+- `services/submission_service.py` — composes those repositories into one unit
+  of work. It persists an `AutomationRun` the existing engine produced; it does
+  not upload, extract, automate or download anything.
+- `alembic/` — the schema's only source. There is no `create_all` anywhere,
+  including in the tests, which build their throwaway database by running the
+  migrations. A test asserts autogenerate finds no difference between the
+  migrated database and the models.
+
+**Rule-set versioning.** `services/rule_set_service.py` fingerprints the rules
+workbook — SHA-256 of its bytes, plus the rule counts each sheet yields, read
+through the existing `RulesWorkbookReader`. `mdr_processing_summaries.rule_set_id`
+is `NOT NULL` with `ON DELETE RESTRICT`: a result that cannot name its rules
+cannot be stored, and rules a result points at cannot be deleted. Introducing
+Rule Set B therefore cannot make MDR #6 appear to have been processed under it.
+
+The rule *content* is not copied into PostgreSQL — that would make the database
+a second home for rules the business maintains in Excel, and the copy could go
+stale without anything failing. The limit is stated in
+`docs/architecture/RULE_VERSIONING.md`: the database says *which* workbook, by
+digest; it cannot reconstruct one nobody kept. Keep the old rules workbooks.
+
+**Historical submissions are independent by construction.** `submission_no` is
+unique per plant (`MDR #6` is *this plant's* sixth), no repository has a
+`get_latest()`, no row is updated when a newer submission arrives, and every
+query into `mdr_document_rows` is scoped by `submission_id`.
+
+**API structure.** The product API is now `/api/v1/mdr`:
+
+    POST /api/v1/mdr/upload
+    POST /api/v1/mdr/{mdr_id}/extract
+    POST /api/v1/mdr/{mdr_id}/automate
+    GET  /api/v1/mdr/{mdr_id}/summary
+    GET  /api/v1/mdr/{mdr_id}/download
+
+**All five return `501 Not Implemented`.** Delivery Phase 2 fixes the paths,
+methods and response shapes; the behaviour is Delivery Phase 3 and 4. No handler
+touches the database, runs the engine or returns a fabricated result. Response
+schemas are declared and appear in `/docs`, so the contract is real —
+`docs/architecture/API_CONTRACT.md`.
+
+`GET /api/health` stays unversioned and always will: it is for a load balancer
+and a monitor, which are not product clients and must not follow the product
+API's version. Versioning applies only at the boundary — there is no
+`services/v1`, `domain/v1` or `engine/v1`, and a test asserts it.
+
+**The engine is untouched.** PostgreSQL was added *around* the existing MDR
+processing, not into it. The engine and domain packages are forbidden from
+importing SQLAlchemy by an architecture test, the Excel writer is unchanged, the
+CLI works as before, and the 803 existing tests are green. An end-to-end test
+runs the real 21,718-row workbook through the real engine into PostgreSQL and
+checks the stored rows against what the engine said — including that the source
+workbook's digest is unchanged afterwards.
+
+### Removed
+
+- **`GET /api/mdr/summary`.** An unversioned product endpoint that ran the
+  engine over whichever workbook was configured. It had no submission to belong
+  to — a summary is now a property of a submission — and no client called it;
+  the frontend calls only `/api/health`. The same capability remains in the CLI
+  (`python -m app.cli`), and its replacement is
+  `GET /api/v1/mdr/{mdr_id}/summary`. `backend/app/api/routes/mdr.py` is gone
+  with it.
+
 ### Added — Phase 2D: the automated Excel output
 
 A run now produces the employee-facing workbook: a copy of the uploaded file

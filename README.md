@@ -101,8 +101,25 @@ cd backend
 uvicorn app.main:app --reload      # http://127.0.0.1:8000/docs
 ```
 
-`GET /api/health` and `GET /api/mdr/summary`. **Unauthenticated — local use
-only.**
+`GET /api/health` works. The five `/api/v1/mdr` product endpoints (upload,
+extract, automate, summary, download) are registered with their full contracts
+and return `501 Not Implemented` until Delivery Phase 3 — see
+[API_CONTRACT.md](docs/architecture/API_CONTRACT.md). **Unauthenticated — local
+use only.**
+
+### Database
+
+Optional: the engine, the CLI and the Excel writer need no database. To use
+persistence, set `MDR_DATABASE_URL` (see `.env.example`) and apply the
+migrations:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+PostgreSQL 16 · SQLAlchemy 2.0 · psycopg 3 · Alembic. Schema:
+[DATABASE_SCHEMA.md](docs/architecture/DATABASE_SCHEMA.md).
 
 ### Frontend
 

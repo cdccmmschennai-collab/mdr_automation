@@ -1,8 +1,12 @@
 # API Architecture
 
-**Status:** the boundary is established. Two endpoints exist. The rest of this
-document describes *intent* — endpoints listed as future are deliberately not
-built.
+**Status:** the boundary is established and versioned. `GET /api/health` works;
+the five `/api/v1/mdr` product endpoints are registered with their full
+contracts and return `501 Not Implemented` until Delivery Phase 3 and 4.
+
+The endpoint-by-endpoint contract lives in **[API_CONTRACT.md](API_CONTRACT.md)**.
+This document is the shape and the rules; that one is the request/response
+detail.
 
 ---
 
@@ -36,72 +40,86 @@ If a route ever needs to do one of those, the logic belongs in
 frontend  ──HTTP/JSON──▶  FastAPI app        backend/app/main.py
                               │
                               ├── /api/health          api/routes/health.py
-                              └── /api/mdr/*           api/routes/mdr.py
-                                      │
+                              │      (operational, unversioned)
+                              │
+                              └── /api/v1/mdr/*        api/routes/mdr_v1.py
+                                      │                api/schemas/mdr.py
                                       ▼
-                                  services              services/mdr_pipeline.py
-                                      │
-                                      ▼
-                                  engine  ──▶  domain
+                                  services              services/*.py
+                                   ╱      ╲
+                                  ▼        ▼
+                              engine    repositories   infrastructure/persistence
+                                 │           │
+                                 ▼           ▼
+                              domain     PostgreSQL
 ```
 
-All routes are mounted under `/api`. CORS origins come from `MDR_CORS_ORIGINS`
-(default `http://localhost:5173`, the Vite dev server).
+Two prefixes, and the difference is deliberate:
+
+* **`/api`** — operational. `/api/health` is for a load balancer, a deploy
+  script and a monitor. Those consumers are not product clients and must not be
+  made to follow the product API's version when it moves.
+* **`/api/v1`** — the product API.
+
+CORS origins come from `MDR_CORS_ORIGINS` (default `http://localhost:5173`, the
+Vite dev server).
 
 ---
 
-## 3. Implemented endpoints
+## 3. The route table
 
-### `GET /api/health`
-
-Proves the boundary end to end without involving MDR logic at all.
-
-```json
-{ "status": "ok", "phase": "1" }
+```
+GET  /api/health                          works
+POST /api/v1/mdr/upload                   501 — Delivery Phase 3
+POST /api/v1/mdr/{mdr_id}/extract         501 — Delivery Phase 3
+POST /api/v1/mdr/{mdr_id}/automate        501 — Delivery Phase 3
+GET  /api/v1/mdr/{mdr_id}/summary         501 — Delivery Phase 3
+GET  /api/v1/mdr/{mdr_id}/download        501 — Delivery Phase 4
 ```
 
-### `GET /api/mdr/summary`
+That is the whole surface;
+`tests/integration/test_api_contract.py` asserts the live application serves
+exactly these and nothing else.
 
-Runs the Phase 1 pipeline over the configured workbook and returns its summary.
-This adds no capability the CLI did not already have.
+The five are named after the five things the product does — upload, extract,
+automate, summary, download — so the workflow is legible from the route table
+alone. They are action endpoints rather than nested resources
+(`/mdr-submissions/{id}/processing-jobs`) because the workflow is genuinely
+procedural. If extract and automate become long-running background work, the
+job resource that follows will be added then, on evidence.
 
-```json
-{
-  "workbook": "_20260720-184-Transmittal Log (9) MDR.xlsx",
-  "discovery": { "qe_sheet": "QatarEnergy-TN", "qe_header_row": 5, "...": "..." },
-  "summary":   { "document_rows": 21718, "latest_rows": 8161, "...": "..." }
-}
-```
+**The 501s are honest, not placeholders that pretend.** No handler touches the
+database, runs the engine, or returns a fabricated result. Their response
+schemas are declared and appear in `/docs`, so the contract is fixed now; the
+behaviour is not claimed.
 
-`404` when no workbook is present in `data/input/current` and
-`MDR_INPUT_WORKBOOK` is unset.
+### Removed in Delivery Phase 2
 
-Synchronous by design. Phase 1 has no job queue; adding one before it is needed
-would be building Phase 7 infrastructure speculatively. The run takes seconds on
-the 22k-row workbook, which is acceptable for a single-user tool and is not
-acceptable for the eventual multi-user one — see §5.
+`GET /api/mdr/summary` — an unversioned product endpoint with no submission to
+belong to, called by nothing. See API_CONTRACT.md for the full reasoning. The
+capability remains in the CLI (`python -m app.cli`).
 
 ---
 
-## 4. Future endpoints — NOT IMPLEMENTED
+## 4. Versioning policy
 
-Listed so the boundary is understood, **not** as a build list. None of these
-exists, and none should be created until its phase begins.
+`v1` is the initial stable public API contract.
 
-| Endpoint | Phase | Would need |
-|---|---|---|
-| `POST /api/mdr/upload` | 7 | Storage adapter, size/type limits |
-| `POST /api/mdr/runs` | 7 | Job queue, run persistence |
-| `GET /api/mdr/runs/{id}` | 7 | Run persistence |
-| `GET /api/mdr/documents` | 7 | Pagination, filtering |
-| `GET /api/mdr/exceptions` | 7 | Pagination |
-| `GET /api/mdr/export/xlsx` | 5 | Excel writer (`engine`/`infrastructure`) |
-| `POST /api/mdr/classify` | 7 | Nothing further — `engine/classification` exists; no endpoint was added for it |
-| `GET /api/mdr/check-status` | 4 | `engine/received` |
-| `POST /api/auth/*` | 7 | Authentication — none exists today |
+* **Do not create `v2` now.** Only a genuinely backward-incompatible change
+  justifies one.
+* Backward-compatible additions stay in v1 — a new endpoint, a new optional
+  request field, a new response field.
+* Breaking changes are a new major version — removing or renaming a response
+  field, changing a field's type or meaning, making an optional request field
+  required.
+* **Versioning applies only at the public API boundary.** There is no
+  `services/v1`, `domain/v1`, `engine/v1` or `repositories/v1`, and there will
+  not be — the internal architecture is version-independent, and a test asserts
+  it.
+* Operational endpoints are never versioned.
 
 **There is no authentication.** The API is unauthenticated and is suitable only
-for local use. Authentication is Phase 7.
+for local use. Authentication is a later delivery phase.
 
 ---
 
@@ -111,14 +129,21 @@ Recorded so they are made deliberately when the time comes, rather than by
 accident:
 
 1. **Long runs.** A 22k-row workbook takes seconds; a multi-user deployment
-   will need a job queue rather than a synchronous request. Phase 7.
-2. **Result size.** `mdr_phase1_result.json` is ~20 MB. A future
-   `GET /api/mdr/documents` must paginate; it must not return the full result.
+   will need a job queue rather than a synchronous request. `POST
+   /api/v1/mdr/{id}/automate` is the endpoint this will hit first.
+2. **Result size.** A submission holds ~22k rows. Any future endpoint returning
+   them must paginate; `DocumentRowRepository.for_submission` already takes
+   `limit`/`offset` so the eventual endpoint has no excuse not to.
 3. **Uploads.** Where an uploaded workbook is stored, and how it is validated
    before the engine touches it, is unresolved. `infrastructure/storage/` is
-   the reserved home.
-4. **Versioning.** No `/v1` prefix yet. Adding one is cheap now and expensive
-   after the frontend ships.
+   the reserved home, and `mdr_submissions.stored_path` is the column waiting
+   for the answer.
+4. ~~**Versioning.**~~ **Resolved in Delivery Phase 2** — see §4. The product
+   API is `/api/v1`; health stays unversioned.
+5. **Re-running a submission.** `mdr_processing_summaries` is unique on
+   `submission_id`, so a submission has one run. Re-running under a new rule
+   set means dropping that one constraint; the table is already shaped as the
+   run history that would become. Not decided, because nothing needs it yet.
 
 ---
 
@@ -128,4 +153,13 @@ accident:
 cd backend
 uvicorn app.main:app --reload      # http://127.0.0.1:8000
                                    # docs at /docs
+```
+
+The API starts with no database configured — the engine, the CLI and the Excel
+writer need none. To use persistence, set `MDR_DATABASE_URL` (see
+`.env.example`) and apply the migrations:
+
+```bash
+cd backend
+alembic upgrade head
 ```
