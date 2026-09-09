@@ -1,7 +1,12 @@
 # System Architecture
 
-**Status:** Phase 1 and Phase 2A (DOC TYPE classification) implemented.
-Phases 2B–7 are not implemented; the packages reserved for them are empty.
+**Status:** Phases 1, 2A (DOC TYPE), 2B (DOC IS REQUIRED SOW), 2C
+(DOC IDB COMPLETED STATUS) and 2D (the automated Excel output) are
+implemented. Phase 3A/3B (received dump, CHECK STATUS) and the web application
+are not; the packages reserved for them are empty.
+
+Phase numbers here follow the engine scheme — see
+[phase numbering](../phases/README.md) for the map to the other two.
 
 ---
 

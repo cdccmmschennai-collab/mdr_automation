@@ -83,6 +83,10 @@ from .workbook_reader import detect_header_row, find_sheet, header_key
 
 #: The sheet the automation writes into. Named after the sheet it mirrors, so
 #: the employee can see at a glance which source sheet it belongs to.
+#:
+#: This name is the product's download contract: the API, the frontend and the
+#: employee's own eye all find the automated results under it, so it is pinned
+#: by a test and is not to be changed casually.
 AUTOMATED_SHEET = "QatarEnergy-TN Automated"
 
 #: Sheets that belong to the employee and are never written to, whatever they

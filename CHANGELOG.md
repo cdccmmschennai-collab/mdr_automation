@@ -5,11 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Phase 2D: the automated Excel output
+
+A run now produces the employee-facing workbook: a copy of the uploaded file
+carrying every sheet it arrived with, plus one added sheet named
+**`QatarEnergy-TN Automated`**. This supersedes the "nothing writes an `.xlsx`"
+note in the Phase 2C entry below.
+
+- `infrastructure/excel/output_workbook.py` — `AutomatedWorkbookWriter`, the
+  only module in the backend that opens a workbook for writing. The five
+  columns are *inserted* before `QATARENERGY SIGNED / NOT SIGNED` (AK–AO on the
+  real workbook), carrying column widths, merged ranges, conditional formats,
+  data validations, the auto-filter and the frozen pane across the insertion —
+  none of which `Worksheet.insert_cols` moves on its own.
+- `services/automation_service.py` — chains Phases 1, 2A, 2B and 2C into one
+  `AutomationRow` per source row. Holds no rule and imports no openpyxl.
+- `domain/models/automation.py` — the five captions, and a
+  `CheckStatusNotEvaluated` guard so `CHECK STATUS` cannot start being filled
+  by accident.
+- `export_automated_workbook`, `export_automation_rows` and `mdr-engine --excel`.
+
+`DOC WITH REV`, `DOC TYPE`, `DOC IS REQUIRED SOW` and
+`DOC IDB COMPLETED STATUS` are written. `CHECK STATUS` is a caption with no
+values under it: the received-document dump does not exist, so a blank there
+means *not evaluated* and never `NOT RECEIVED`.
+
+The source workbook is never modified — it is copied in memory and saved
+elsewhere, a destination resolving to the source is refused by both the writer
+and the export service, and tests assert its SHA-256, size and mtime are
+unchanged by a full run.
+
+### Changed
+
+- The automated sheet name `QatarEnergy-TN Automated` is now pinned by a test
+  as a literal, rather than only being asserted through the constant that
+  defines it. It is the product's download contract: the Phase 4 export
+  endpoint, the frontend and the employee all find the results under it.
+- `docs/phases/README.md` — new: the map between the three phase-numbering
+  schemes in use (engine, document filenames, delivery plan), which collide on
+  "Phase 4" and "Phase 5".
+
 ### Added — Phase 2C: DOC IDB COMPLETED STATUS
 
 The scope verdict decided by Phase 2B now resolves to an IDB status.
-**IDB only** — CHECK STATUS, the received dump and the Excel output remain
-unimplemented, and nothing writes an `.xlsx` file.
+**IDB only** — CHECK STATUS and the received dump are unimplemented. (At the
+time of this change nothing wrote an `.xlsx`; Phase 2D above now does.)
 
 - `engine/idb/` — `rules.py` (the two rules reverse-engineered from column AN,
   plus the scope and outcome readers) and `resolver.py` (`IdbResolver`).

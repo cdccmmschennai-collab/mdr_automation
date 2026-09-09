@@ -1,8 +1,7 @@
 # Data Flow
 
-The conceptual end-to-end MDR flow. **Only the first five stages exist.**
-Everything below the line marked NOT IMPLEMENTED is a placeholder describing
-intent, not behaviour.
+The conceptual end-to-end MDR flow. Every stage exists except **Received
+Check**, which is a placeholder describing intent, not behaviour.
 
 ---
 
@@ -39,7 +38,11 @@ intent, not behaviour.
   Validation           ⚠️  PARTIAL         engine/validation
         │
         ▼
-  Output               ⚠️  PARTIAL         services/export_service
+  Output               ✅ IMPLEMENTED   services/export_service (Phase 2D)
+        │              JSON + CSV, and the automated workbook
+        ▼
+  Automated .xlsx      ✅ IMPLEMENTED   infrastructure/excel/output_workbook
+                       adds 'QatarEnergy-TN Automated'
 ```
 
 ---
@@ -168,7 +171,7 @@ Two things are validated, each against a manually maintained column:
 
 Validation of check status does not exist because that stage does not exist.
 
-### 9. Output ⚠️ PARTIAL
+### 9. Output ✅
 
 `services/export_service.py` writes the machine-readable result:
 
@@ -183,11 +186,23 @@ Validation of check status does not exist because that stage does not exist.
 | `sow_report.json` | Comparison vs column AM, with mismatch causes |
 | `idb_report.json` | Comparison vs column AN, with mismatch causes |
 
-**Excel MDR output generation is Phase 2D and does not exist.** Of the five MDR
-columns at AK–AO of the reference workbook's `QatarEnergy-TN WORKING` sheet,
-`DOC TYPE`, `DOC IS REQUIRED SOW` and `DOC IDB COMPLETED STATUS` are produced,
-and only into JSON/CSV. `DOC WITH REV` and `CHECK STATUS` are not produced at
-all, and no `.xlsx` is ever written.
+**Excel MDR output generation is Phase 2D and is implemented.** A run with
+`--excel` writes `<source stem>_MDR_AUTOMATED.xlsx`: a copy of the uploaded
+workbook carrying every sheet it arrived with, plus one added sheet named
+`QatarEnergy-TN Automated`.
+
+Of the five MDR columns at AK–AO of the reference workbook's
+`QatarEnergy-TN WORKING` sheet, four are written — `DOC WITH REV`, `DOC TYPE`,
+`DOC IS REQUIRED SOW` and `DOC IDB COMPLETED STATUS`. `CHECK STATUS` is
+written as a caption with no values under it, because the stage that would
+decide it does not exist. A blank there means *not evaluated*, never
+`NOT RECEIVED`.
+
+The writer is `infrastructure/excel/output_workbook.py`, the only module in the
+backend that opens a workbook for writing. It inserts the five columns before
+`QATARENERGY SIGNED / NOT SIGNED` rather than appending them, and carries the
+column widths, merged ranges, conditional formats, data validations, auto-filter
+and frozen pane across the insertion.
 
 ---
 

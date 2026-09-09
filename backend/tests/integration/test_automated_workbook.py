@@ -603,3 +603,154 @@ class TestAnAlreadyWorkedWorkbook:
         _, report = exported
         assert report.automated_sheet == AUTOMATED_SHEET
         assert WORKING_SHEET in report.untouched_sheets
+
+
+# --------------------------------------------------------------------------
+# The download contract, pinned.
+#
+# Phase 4 hands this file to an employee over HTTP, and everything downstream
+# - the API, the frontend, the employee's own eye - finds the automation by
+# the sheet's name and the captions on it. Those are an interface, not an
+# implementation detail, so they are asserted as literals here: a refactor
+# that renames them has to come and change this test on purpose.
+
+#: The sheet name the product requires. Deliberately *not* `AUTOMATED_SHEET` -
+#: the point is to pin the value the constant is allowed to hold, so a rename
+#: has to be made here on purpose rather than propagating silently.
+CONTRACT_SHEET = "QatarEnergy-TN Automated"
+
+#: The four columns the automation is required to fill. CHECK STATUS is the
+#: fifth caption on the sheet and is deliberately not here: it has no engine
+#: behind it yet, and `TestCheckStatusIsBlank` asserts it stays empty.
+CONTRACT_COLUMNS = (DOC_WITH_REV, DOC_TYPE, DOC_IS_REQUIRED_SOW,
+                    DOC_IDB_COMPLETED_STATUS)
+
+
+class TestTheDownloadContract:
+    def test_the_sheet_carries_the_contract_name(self, output):
+        assert AUTOMATED_SHEET == CONTRACT_SHEET
+        assert CONTRACT_SHEET in output.sheetnames
+
+    def test_the_original_sheets_are_all_still_there_beside_it(self, output):
+        """The contract is the employee's workbook *plus* a sheet, never a
+        sheet instead of the workbook."""
+        assert output.sheetnames == SOURCE_SHEETS + [CONTRACT_SHEET]
+
+    def test_the_four_required_captions_are_on_it(self, written):
+        _, letters, _ = read_automation_columns(written[1], CONTRACT_SHEET)
+        assert set(CONTRACT_COLUMNS) <= set(letters)
+
+    def test_every_document_row_carries_the_four_values(self, written):
+        """Populated, not merely present. A blank DOC IDB COMPLETED STATUS is
+        the one permitted empty - it means `MANUAL_CHECK_REQUIRED` - so it is
+        checked for presence of the key rather than a value."""
+        _, _, rows = read_automation_columns(written[1], CONTRACT_SHEET)
+        assert {r["source_row"] for r in rows} == set(DOCUMENT_ROWS)
+        for row in rows:
+            assert all(caption in row for caption in CONTRACT_COLUMNS)
+            assert row[DOC_WITH_REV]
+            assert row[DOC_TYPE]
+            assert row[DOC_IS_REQUIRED_SOW]
+
+    def test_the_sheet_name_survives_a_re_export(self, source,
+                                                 tmp_path_factory):
+        """A second pass over an already-automated workbook keeps the one
+        contract sheet - it does not add a second, suffixed copy beside it."""
+        tmp = tmp_path_factory.mktemp("contract-rerun")
+        first = AutomatedWorkbookWriter(source).write(sample_rows(),
+                                                      tmp / "ONE.xlsx")
+        second = AutomatedWorkbookWriter(first.destination).write(
+            sample_rows(), tmp / "TWO.xlsx")
+        assert list(second.sheet_names).count(CONTRACT_SHEET) == 1
+        assert second.automated_sheet == CONTRACT_SHEET
+
+
+# --------------------------------------------------------------------------
+# Determinism.
+#
+# The same workbook and the same rows must produce the same answers every
+# time. The .xlsx *bytes* are not comparable - openpyxl stamps the save time
+# into `docProps/core.xml` - so the comparison is made over everything the
+# employee and the API actually read: the sheet names, the column placement
+# and every cell on the automated sheet.
+
+def _automated_grid(path):
+    """Every cell of the automated sheet, as plain values."""
+    wb = load_workbook(path, data_only=True)
+    try:
+        return [[c.value for c in row] for row in wb[AUTOMATED_SHEET].rows]
+    finally:
+        wb.close()
+
+
+class TestRepeatedRunsAreDeterministic:
+    @pytest.fixture(scope="class")
+    def twice(self, source, tmp_path_factory):
+        """Two independent exports of the same source, to separate files."""
+        tmp = tmp_path_factory.mktemp("determinism")
+        first = AutomatedWorkbookWriter(source).write(sample_rows(),
+                                                     tmp / "FIRST.xlsx")
+        second = AutomatedWorkbookWriter(source).write(sample_rows(),
+                                                      tmp / "SECOND.xlsx")
+        return first, second
+
+    def test_the_sheets_are_the_same(self, twice):
+        first, second = twice
+        assert first.sheet_names == second.sheet_names
+        assert first.untouched_sheets == second.untouched_sheets
+
+    def test_the_columns_land_in_the_same_places(self, twice):
+        first, second = twice
+        assert first.columns == second.columns
+        assert first.inserted_at == second.inserted_at
+        assert first.inserted_columns == second.inserted_columns
+        assert first.inserted_before == second.inserted_before
+        assert first.reused_columns == second.reused_columns
+
+    def test_the_same_rows_are_written(self, twice):
+        first, second = twice
+        assert first.rows_written == second.rows_written
+        assert first.header_row == second.header_row
+        assert first.rows_outside_sheet == second.rows_outside_sheet
+
+    def test_every_automation_value_is_identical(self, twice):
+        first, second = twice
+        assert read_automation_columns(first.destination) == \
+            read_automation_columns(second.destination)
+
+    def test_every_cell_of_the_automated_sheet_is_identical(self, twice):
+        """Not just the five columns - the whole copied sheet, so a
+        non-deterministic *copy* is caught too."""
+        first, second = twice
+        assert _automated_grid(first.destination) == \
+            _automated_grid(second.destination)
+
+
+class TestTheSourceFileIsNotTouchedAtAll:
+    """Beyond the digest: the file is not rewritten with identical bytes.
+
+    A writer that opened the source for update and saved it back unchanged
+    would keep its SHA-256 and still be a bug - it would take the employee's
+    lock, bump the mtime, and prove the input is not being treated as
+    read-only. Size and mtime catch that; the digest catches content.
+    """
+
+    @pytest.fixture(scope="class")
+    def stats(self, source, tmp_path_factory):
+        before = source.stat()
+        digest = sha256_file(source)
+        export_automated_workbook(
+            source, sample_rows(), tmp_path_factory.mktemp("untouched"))
+        return before, digest, source.stat(), sha256_file(source)
+
+    def test_the_digest_is_unchanged(self, stats):
+        _, digest, _, after = stats
+        assert after == digest
+
+    def test_the_size_is_unchanged(self, stats):
+        before, _, after, _ = stats
+        assert after.st_size == before.st_size
+
+    def test_the_modification_time_is_unchanged(self, stats):
+        before, _, after, _ = stats
+        assert after.st_mtime == before.st_mtime

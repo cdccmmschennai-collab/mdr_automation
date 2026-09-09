@@ -6,10 +6,17 @@ Status Codes, sequences revisions, determines the latest revision, and assigns
 each document its `DOC TYPE` from the keyword rules workbook, its
 `DOC IS REQUIRED SOW` scope verdict and its `DOC IDB COMPLETED STATUS`.
 
-**Phases 1, 2A (DOC TYPE), 2B (DOC IS REQUIRED SOW) and 2C
-(DOC IDB COMPLETED STATUS) are complete and validated. Phases 2D–7 are
-not implemented** — no CHECK STATUS, no received-document processing, no Excel
-output, no MDR frontend.
+**Phases 1, 2A (DOC TYPE), 2B (DOC IS REQUIRED SOW), 2C
+(DOC IDB COMPLETED STATUS) and 2D (Excel output) are complete and validated.
+Phases 3–7 are not implemented** — no CHECK STATUS, no received-document
+processing, no persistence, no API, no MDR frontend.
+
+A run with `--excel` writes a copy of the uploaded workbook carrying every
+sheet it arrived with, plus one added sheet named
+**`QatarEnergy-TN Automated`** holding
+`DOC WITH REV`, `DOC TYPE`, `DOC IS REQUIRED SOW` and
+`DOC IDB COMPLETED STATUS`. `CHECK STATUS` is present as a caption and is
+deliberately left empty — see [Not implemented](#not-implemented).
 
 The vendor sheet is **not** consolidated into the document universe; the
 processing universe is `QatarEnergy-TN` only
@@ -183,8 +190,15 @@ left unchanged.
 
 ## Not implemented
 
-CHECK STATUS / received-document dump, vendor consolidation, Excel MDR output,
-the MDR frontend, the employee workflow, authentication, job queue, deployment.
+CHECK STATUS / received-document dump, vendor consolidation, persistence, the
+HTTP API, the MDR frontend, the employee workflow, authentication, job queue,
+deployment.
+
+The Excel MDR output **is** implemented (Phase 2D). `CHECK STATUS` appears on
+the `QatarEnergy-TN Automated` sheet as a caption with no values under it:
+deciding it
+needs the received-document dump, and `data/received/` is empty. A blank there
+means *not evaluated* and must never be read as `NOT RECEIVED`.
 
 The IDB **completion source** is also not implemented: the engine decides
 whether an IDB check is due, and states `TO BE CHECK` where the outcome of that
