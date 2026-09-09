@@ -26,6 +26,10 @@ REQUIRED_PREFIX = "YES"
 
 #: The `DOCUMENT TYPE` sheet of the rules workbook stated it.
 FROM_DOCUMENT_TYPE_TABLE = "DOCUMENT_TYPE_TABLE"
+#: Phase 2A classified the document from the `NOT REQUIRED-KEY DOC.WORDS`
+#: sheet, which is itself a scope statement: everything that sheet names is
+#: out of scope. See `engine.sow.resolver`.
+FROM_NOT_REQUIRED_KEYWORDS = "NOT_REQUIRED_KEYWORDS"
 #: The DOC TYPE was itself a "not scope of work" verdict (`OLD REV NOT SOW`,
 #: `NOT SOW`), which states its own SOW answer.
 FROM_NOT_SOW_VERDICT = "NOT_SOW_VERDICT"

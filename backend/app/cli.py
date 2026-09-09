@@ -1,6 +1,10 @@
-"""Phase 1 command line entry point.
+"""Command line entry point.
 
-    python -m app.cli --workbook <path> --outdir <dir> [--validate]
+    python -m app.cli --workbook <path> --outdir <dir> [--validate] [--excel]
+
+`--excel` is Phase 2D: it writes a copy of the input workbook carrying the
+five automation columns, and prints the source workbook's SHA-256 before and
+after so the run can be seen not to have touched it.
 
 Reads only; the source workbook is never modified. Paths default to the
 configured data directories (see `core.config`), so nothing production-specific
@@ -14,8 +18,15 @@ import sys
 from pathlib import Path
 
 from .core.config import settings
+from .domain.models.automation import AUTOMATION_COLUMNS, CHECK_STATUS
 from .engine.validation.latest import validate_latest
-from .services.export_service import export_result, export_validation_report
+from .infrastructure.filesystem.artifact_writer import sha256_file
+from .services.automation_service import AutomationRun, build_automation_rows
+from .services.export_service import (
+    export_automated_workbook, export_automation_rows, export_result,
+    export_validation_report,
+)
+from .services.idb_service import build_resolvers
 from .services.mdr_pipeline import MdrEngine
 
 
@@ -30,8 +41,57 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default: data/output/latest)")
     p.add_argument("--validate", action="store_true",
                    help="compare against the workbook's own LATEST/NOT LATEST column")
+    p.add_argument("--excel", action="store_true",
+                   help="Phase 2D: write a copy of the workbook carrying the "
+                        "five automation columns")
     p.add_argument("--quiet", action="store_true")
     return p
+
+
+def _run_excel(workbook: Path, result, rules_workbook, outdir: Path,
+               quiet: bool) -> None:
+    """Phase 2D: resolve the five columns and write the employee's workbook."""
+    before = sha256_file(workbook)
+
+    sow_resolver, idb_resolver = build_resolvers(rules_workbook)
+    run = AutomationRun(result=result,
+                        rows=build_automation_rows(result.documents,
+                                                   sow_resolver, idb_resolver))
+    report = export_automated_workbook(workbook, run.rows, outdir)
+    export_automation_rows(run.rows, outdir)
+
+    after = sha256_file(workbook)
+    summary = run.summary()
+
+    if quiet:
+        return
+    print("\n" + "-" * 72)
+    print("PHASE 2D - FIVE-COLUMN EXCEL OUTPUT")
+    print("-" * 72)
+    print(f"  output workbook : {report.destination}")
+    print(f"  source sheet    : {report.source_sheet!r} "
+          f"(header row {report.header_row})")
+    print(f"  automated sheet : {report.automated_sheet!r}")
+    print(f"  sheets in output: {', '.join(report.sheet_names)}")
+    print(f"  rows written    : {report.rows_written} of {report.data_rows} "
+          f"data rows")
+    print("\n  columns:")
+    for caption in AUTOMATION_COLUMNS:
+        letter = report.columns[caption]
+        note = ("intentionally blank - no received-document dump (Phase 3A)"
+                if caption == CHECK_STATUS else "populated")
+        print(f"    {letter:>3}  {caption:<26} {note}")
+    print("\n  populated cells:")
+    for key in ("doc_with_rev_populated", "doc_type_populated",
+                "sow_populated", "idb_populated", "check_status_populated"):
+        print(f"    {key:<26}: {summary[key]}")
+    print("\n  DOC IDB COMPLETED STATUS:")
+    for value, n in sorted(summary["idb_counts"].items(), key=lambda kv: -kv[1]):
+        print(f"    {n:>6}  {value or '(blank)'}")
+    print("\n  source workbook SHA-256:")
+    print(f"    before: {before}")
+    print(f"    after : {after}")
+    print(f"    {'UNCHANGED' if before == after else 'CHANGED - THIS IS A BUG'}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,6 +153,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"       group: {d.group}")
             else:
                 print("\n  GENUINE CONFLICTS: none")
+
+    if args.excel:
+        _run_excel(workbook, result, engine.rules_workbook, outdir, args.quiet)
 
     if not args.quiet:
         print(f"\nwritten to {outdir}")

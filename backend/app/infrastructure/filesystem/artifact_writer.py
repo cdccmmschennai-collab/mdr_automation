@@ -8,10 +8,25 @@ export service's decision. Nothing here knows what an MDR document is beyond
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable
+
+
+def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
+    """Hex SHA-256 of a file, read in chunks so a large workbook is not
+    loaded whole.
+
+    Used to prove that a source workbook came out of a run byte-for-byte
+    identical to how it went in.
+    """
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def public_fields(record) -> dict:

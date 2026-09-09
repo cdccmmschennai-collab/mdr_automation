@@ -20,9 +20,18 @@ from openpyxl import load_workbook
 from ...engine.identity.normalisation import clean
 
 
-def _key(text: object) -> str:
-    """Header comparison key: upper, alphanumeric only."""
+def header_key(text: object) -> str:
+    """Header comparison key: upper, alphanumeric only.
+
+    Public because the output writer matches the same captions when deciding
+    whether a workbook already carries an automation column, and the two must
+    agree on what "the same header" means.
+    """
     return re.sub(r"[^A-Z0-9]", "", clean(text).upper())
+
+
+#: Internal shorthand, used throughout this module.
+_key = header_key
 
 
 class SheetNotFoundError(LookupError):

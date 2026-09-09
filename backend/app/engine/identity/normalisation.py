@@ -57,6 +57,27 @@ def strip_ven_prefix(canonical: str) -> str:
     return canonical[3:] if canonical.startswith("VEN") else canonical
 
 
+def doc_with_rev(document_no: object, revision: object) -> str:
+    """`DOC WITH REV`: the document number and its revision, joined by '-'.
+
+    The rule is the working file's own: of the 21,372 rows of
+    `QatarEnergy-TN WORKING`, 21,371 have column AK exactly equal to
+    `DOCUMENT NO.` + '-' + `REV`, the single exception being a stray space
+    inside the document number on row 3618. Nothing is normalised away beyond
+    whitespace and case, because the value is an identity label a human reads
+    back against the workbook.
+
+    An empty document number gives an empty label - there is no document to
+    name. An empty revision gives the document number alone, with no dangling
+    separator, rather than a revision this function has invented.
+    """
+    number = "" if is_null_token(document_no) else clean(document_no).upper()
+    if not number:
+        return ""
+    rev = "" if is_null_token(revision) else clean(revision).upper()
+    return f"{number}-{rev}" if rev else number
+
+
 def normalise_identity(value: object) -> DocumentIdentity:
     """Build a DocumentIdentity from a raw cell value."""
     raw = clean(value)

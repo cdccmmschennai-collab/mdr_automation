@@ -47,6 +47,23 @@ data/received/
 data/output/
 data/rules/
 
+# The same data, wherever a run puts it. `--outdir` takes any path, so a run
+# from the repository root writes engine artefacts to ./output/ and the
+# automated workbook beside them - outside every rule above. These patterns
+# catch the artefacts by name rather than by location, so the policy holds
+# whatever directory the CLI is pointed at.
+/output/
+*_MDR_AUTOMATED.xlsx
+documents.csv
+vendor_rows.csv
+exceptions.csv
+automation_rows.json
+mdr_phase1_result.json
+validation_report.json
+doc_type_report.json
+sow_report.json
+idb_report.json
+
 # Excel lock files, wherever they appear
 ~$*.xls*
 

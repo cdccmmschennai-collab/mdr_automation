@@ -131,6 +131,9 @@ class MdrEngine:
                 rec.doc_type = verdict.doc_type
                 rec.doc_type_rule = (verdict.winning_match.describe()
                                      if verdict.winning_match else "")
+                # Which keyword sheet decided it. Phase 2B needs this: the
+                # not-required sheet states scope, not just a label.
+                rec.doc_type_source = verdict.rule_source
 
             # Signals that remove a row from latest candidacy.
             rec_withdrawn = is_withdrawn(row.qe_status, row.remarks)

@@ -128,11 +128,14 @@ class TestRequirementValue:
 
 
 class TestScopeBoundary:
-    def test_the_resolver_takes_only_a_doc_type(self):
+    def test_the_resolver_takes_only_phase_2a_output(self):
         """Gate D, structurally: there is no parameter through which the
-        reference workbook's column AM, AN or AO could reach the resolver."""
+        reference workbook's column AM, AN or AO could reach the resolver.
+
+        Both parameters are Phase 2A's own verdict about the document - the
+        DOC TYPE it decided, and the keyword sheet it decided it from."""
         params = list(inspect.signature(SowResolver.resolve).parameters)
-        assert params == ["self", "doc_type"]
+        assert params == ["self", "doc_type", "rule_source"]
 
     def test_the_resolver_never_sees_a_document_number_or_title(self, resolver):
         """It does not reclassify: DOC TYPE is Phase 2A's verdict, consumed."""

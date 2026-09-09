@@ -65,6 +65,11 @@ class DocumentRecord:
     doc_type: str = ""
     #: Which rule decided `doc_type`, e.g. `REQUIRED#51 DOCUMENT_TITLE 'P&ID'`.
     doc_type_rule: str = ""
+    #: Which keyword sheet that rule came from: `REQUIRED` / `NOT_REQUIRED`,
+    #: empty when no rule matched. Phase 2B reads it, because
+    #: `NOT REQUIRED-KEY DOC.WORDS` is itself a scope statement - see
+    #: `engine.sow.resolver`.
+    doc_type_source: str = ""
     # Context retained for validation and later phases.
     document_title: str = ""
     discipline: str = ""
