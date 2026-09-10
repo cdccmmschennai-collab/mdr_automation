@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — plant/API readiness for multiple plants
+
+The backend is ready for a second plant to be a row, not a deployment. One
+plant is registered and its behaviour is unchanged.
+
+- `GET /api/v1/plants` (`api/routes/plants_v1.py`, `api/schemas/plants.py`,
+  `services/plant_service.py`): the plants a submission can belong to, as
+  `id` / `code` / `name` and nothing else, ordered by `code`. `id` is what
+  `POST /api/v1/mdr/upload` takes as `plant_id`; the frontend never types a
+  UUID and is never told which rules a plant uses.
+- `plants.rules_workbook` (migration `0002`, nullable TEXT): the filename
+  under `data/rules/` of the rules workbook this plant's submissions are
+  automated with. NULL = the deployment default, which is what the existing
+  plant used and keeps using. This is the whole plant → rule-set
+  relationship: plants naming the same file share one `rule_sets` row (the
+  rule set is still identified by digest); a plant naming its own file gets
+  its own; an existing submission keeps the `rule_set_id` it was automated
+  under. No new table; `rule_sets` and `mdr_processing_summaries` unchanged.
+- `services/rule_set_service.rules_workbook_for_plant`: the one place a
+  plant and the rules meet. A filename only — a path, a directory component
+  or `..` is refused; a selected file that is not installed is
+  `PlantRulesUnavailable`, never a silent fall-back to the default.
+- `workflow_service`: `extract` and `automate` resolve the rules workbook
+  from the submission's plant rather than from the global default, and
+  refuse with `422` (submission unchanged) when the plant's selection is not
+  installed. The engine, classifier and SOW/IDB resolvers are untouched and
+  still know no plant.
+- Docs: `API_CONTRACT.md` (plants as selectable entities, the endpoint, the
+  plant → rule-set model, `422` rows), `DATABASE_SCHEMA.md`,
+  `RULE_VERSIONING.md` (*Plants and rule sets*), route tables.
+- Tests: `tests/unit/test_rule_selection.py`; `tests/api/test_plants_api.py`
+  (the selector, the listed id round-tripping into upload, unknown plant
+  still `404`, default/shared/own rule set over the real workflow, missing
+  selection refused with the submission kept); `test_api_contract.py` route
+  table and `PlantResponse` shape; `test_repositories.py` column round-trip.
+
 ### Added — Delivery Phase 4: download
 
 `GET /api/v1/mdr/{mdr_id}/download` is implemented. Every v1 endpoint now

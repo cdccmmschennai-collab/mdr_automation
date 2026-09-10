@@ -11,6 +11,8 @@ happen to contain. `test_phase2d_pipeline.py` runs the same exporter over the
 real 22,009-row workbook.
 """
 
+from copy import copy
+
 import pytest
 from openpyxl import load_workbook
 
@@ -19,16 +21,17 @@ from app.domain.models.automation import (
     DOC_IS_REQUIRED_SOW, DOC_TYPE, DOC_WITH_REV, AutomationRow,
 )
 from app.infrastructure.excel.output_workbook import (
-    AUTOMATED_SHEET, AutomatedWorkbookWriter, OutputWouldOverwriteSource,
-    read_automation_columns,
+    AUTOMATED_SHEET, HEADER_FILL_RGB, AutomatedWorkbookWriter,
+    OutputWouldOverwriteSource, read_automation_columns,
 )
 from app.infrastructure.filesystem.artifact_writer import sha256_file
 from app.services.export_service import (
     automated_workbook_path, export_automated_workbook,
 )
 from tests.support.automation import (
-    ANCHOR_COLUMN, DATA_ROWS, DOCUMENT_ROWS, FIRST_DATA_ROW, HEADER_FONT,
-    HEADER_ROW, HEADERS, WORKING_SHEET, build_source_workbook, sample_rows,
+    ANCHOR_COLUMN, BAND_ROW, DATA_ROWS, DOCUMENT_ROWS, FIRST_DATA_ROW,
+    HEADER_FONT, HEADER_ROW, HEADERS, TRAILING_NUMBER_FORMAT, TRAILING_STYLE,
+    WORKING_SHEET, build_source_workbook, sample_rows,
 )
 
 SOURCE_SHEETS = ["QatarEnergy-TN", "TN FROM VENDORS", "Status Codes",
@@ -42,6 +45,28 @@ FIRST_AUTOMATION_COLUMN = ANCHOR_COLUMN                     # 9 -> 'I'
 CHECK_STATUS_COLUMN = ANCHOR_COLUMN + 4                     # 13 -> 'M'
 #: The three trailing captions, pushed right by the five inserted columns.
 TRAILING_LETTERS = ["N", "O", "P"]
+#: The caption immediately left of the block - `REMARKS`, as `(PREPARED /NOT
+#: PREPARED BY MEDGULF)` is at AJ on the real sheet - whose style the five
+#: captions inherit. And the column the block displaced, now to its right.
+TEMPLATE_LETTER = "H"
+DISPLACED_LETTER = TRAILING_LETTERS[0]
+
+
+def _style_of(cell) -> dict:
+    """Every style component of a cell but the fill, as comparable values.
+
+    The openpyxl style proxies do not compare with one another, so each is
+    copied out to the plain style object it wraps. `style` is the named cell
+    style (`Normal`, `Accent1`, ...) the cell is based on.
+    """
+    return {
+        "font": copy(cell.font),
+        "border": copy(cell.border),
+        "alignment": copy(cell.alignment),
+        "number_format": cell.number_format,
+        "protection": copy(cell.protection),
+        "style": cell.style,
+    }
 
 
 @pytest.fixture(scope="module")
@@ -343,21 +368,102 @@ class TestCheckStatusIsBlank:
 
 
 class TestFormatting:
-    def test_the_new_headers_wear_the_sheets_own_header_style(self, output):
+    def test_the_five_captions_sit_at_ak_to_ao_of_the_real_sheet(self, output):
+        """Names and positions, before their looks: the block is `I..M` here
+        and `AK..AO` on the real sheet, in the working sheet's own order."""
         ws = output[AUTOMATED_SHEET]
-        template = ws.cell(row=HEADER_ROW, column=1)
+        assert [ws[f"{L}{HEADER_ROW}"].value for L in AUTOMATION_LETTERS] == \
+            [DOC_WITH_REV, DOC_TYPE, DOC_IS_REQUIRED_SOW,
+             DOC_IDB_COMPLETED_STATUS, CHECK_STATUS]
+        assert ws[f"{TEMPLATE_LETTER}{HEADER_ROW}"].value == "REMARKS"
+        assert ws[f"{DISPLACED_LETTER}{HEADER_ROW}"].value == \
+            "QATARENERGY SIGNED / NOT SIGNED"
+
+    def test_the_new_headers_wear_the_neighbouring_captions_whole_style(
+            self, output):
+        """Every style component but the fill is the caption beside the
+        block's, as one copy - font, colour, bold, border, alignment, number
+        format, protection and named style - not a hand-picked subset of it.
+        Nothing here names a colour or a font: whatever the source's caption
+        wears, the five wear."""
+        ws = output[AUTOMATED_SHEET]
+        template = ws[f"{TEMPLATE_LETTER}{HEADER_ROW}"]
+        expected = _style_of(template)
+        assert expected["font"].name == HEADER_FONT       # the fixture's own
+        assert expected["font"].bold is True
+        assert expected["number_format"] == "@"
+        assert expected["protection"].locked is False
+        assert expected["style"] == "Normal"
+        for letter in AUTOMATION_LETTERS:
+            assert _style_of(ws[f"{letter}{HEADER_ROW}"]) == expected, letter
+
+    def test_the_new_headers_did_not_copy_the_trailing_date_caption(
+            self, output):
+        """The right-most caption is a date column in a named style. On the
+        real sheet that is `DATE ISSUED` in `Accent1`; a text caption must not
+        inherit it, and a writer that copied the wrong neighbour would."""
+        ws = output[AUTOMATED_SHEET]
+        trailing = ws[f"{DISPLACED_LETTER}{HEADER_ROW}"]
+        assert trailing.number_format == TRAILING_NUMBER_FORMAT
+        assert trailing.style == TRAILING_STYLE
         for letter in AUTOMATION_LETTERS:
             cell = ws[f"{letter}{HEADER_ROW}"]
-            assert cell.font.name == template.font.name == HEADER_FONT
-            assert cell.font.bold == template.font.bold is True
-            assert cell.border.left.style == template.border.left.style
+            assert cell.number_format != trailing.number_format
+            assert cell.style != trailing.style
 
     def test_the_new_headers_wear_the_working_sheets_own_fill(self, output):
         """Green, as in `QatarEnergy-TN WORKING`: the one thing the automation
-        block does differently from the captions beside it."""
+        block does differently from the captions beside it. The fill is the
+        neighbouring caption's own with the foreground swapped - same pattern,
+        same background - so it is the fill Excel wrote on the working sheet,
+        not one built from a colour alone."""
         ws = output[AUTOMATED_SHEET]
+        template = ws[f"{TEMPLATE_LETTER}{HEADER_ROW}"].fill
+        assert template.fgColor.rgb != HEADER_FILL_RGB    # or this proves nothing
         for letter in AUTOMATION_LETTERS:
-            assert ws[f"{letter}{HEADER_ROW}"].fill.fgColor.rgb == "FF00B050"
+            fill = ws[f"{letter}{HEADER_ROW}"].fill
+            assert fill.fill_type == template.fill_type == "solid"
+            assert fill.fgColor.rgb == HEADER_FILL_RGB
+            assert fill.bgColor == template.bgColor
+
+    def test_the_rows_above_the_header_keep_their_colour_across_the_block(
+            self, source, output):
+        """Row 3 is a yellow band from A to the anchor column, as `A3:AK3` on
+        the real sheet. Five columns inserted before the anchor must not open
+        a white gap in it: each inserted cell above the header wears the style
+        of the cell the insertion displaced - the anchor column's own, now to
+        the block's right - so the title rows read as they did."""
+        ws = output[AUTOMATED_SHEET]
+        src = load_workbook(source)
+        try:
+            band = copy(src["QatarEnergy-TN"].cell(row=BAND_ROW,
+                                                   column=ANCHOR_COLUMN).fill)
+        finally:
+            src.close()
+        assert band.fill_type == "solid"
+        # The band travelled with the displaced column ...
+        displaced = ws[f"{DISPLACED_LETTER}{BAND_ROW}"]
+        assert copy(displaced.fill) == band
+        # ... and every inserted cell above the captions matches that
+        # column, row for row: the band on row 3, and no invented style on
+        # the rows that carry none.
+        for row in range(1, HEADER_ROW):
+            neighbour = ws[f"{DISPLACED_LETTER}{row}"]
+            for letter in AUTOMATION_LETTERS:
+                cell = ws[f"{letter}{row}"]
+                assert copy(cell.fill) == copy(neighbour.fill), (letter, row)
+                assert _style_of(cell) == _style_of(neighbour), (letter, row)
+        for letter in AUTOMATION_LETTERS:
+            assert copy(ws[f"{letter}{BAND_ROW}"].fill) == band
+
+    def test_the_captions_are_the_only_cells_the_block_colours_green(
+            self, output):
+        """The green belongs to the caption row alone. Above it the block
+        wears the title rows' own colours, and none of those is green."""
+        ws = output[AUTOMATED_SHEET]
+        for row in range(1, HEADER_ROW):
+            for letter in AUTOMATION_LETTERS:
+                assert ws[f"{letter}{row}"].fill.fgColor.rgb != HEADER_FILL_RGB
 
     def test_the_data_cells_wear_the_sheets_own_body_style(self, output):
         ws = output[AUTOMATED_SHEET]

@@ -29,6 +29,7 @@ EXPECTED_PRODUCT_ROUTES = {
     ("POST", "/api/v1/mdr/{mdr_id}/automate"),
     ("GET", "/api/v1/mdr/{mdr_id}/summary"),
     ("GET", "/api/v1/mdr/{mdr_id}/download"),
+    ("GET", "/api/v1/plants"),
 }
 
 EXPECTED_OPERATIONAL_ROUTES = {("GET", "/api/health")}
@@ -74,7 +75,7 @@ class TestRouteTable:
 
     def test_every_product_route_is_under_v1(self):
         product = {p for _, p in registered_routes()
-                   if "mdr" in p or "submission" in p}
+                   if "mdr" in p or "submission" in p or "plant" in p}
         assert product and all(p.startswith(API_V1_PREFIX) for p in product)
 
     def test_the_prefixes_are_what_the_policy_says(self):
@@ -141,7 +142,14 @@ class TestOpenApiContract:
     def test_the_contract_documents_the_response_shapes(self, client):
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
         assert {"UploadResponse", "ExtractResponse", "AutomateResponse",
-                "SummaryResponse", "RuleSetRef"} <= set(schemas)
+                "SummaryResponse", "RuleSetRef", "PlantResponse"} <= set(schemas)
+
+    def test_a_plant_exposes_only_what_a_selector_needs(self, client):
+        """id to upload with, code and name to show. No timestamps, no rule
+        detail, no filename - the rules a plant uses are the backend's."""
+        schemas = client.get("/openapi.json").json()["components"]["schemas"]
+        assert set(schemas["PlantResponse"]["properties"]) == {
+            "id", "code", "name"}
 
     def test_a_summary_declares_its_rule_set(self, client):
         """The field that makes a historical result explainable."""

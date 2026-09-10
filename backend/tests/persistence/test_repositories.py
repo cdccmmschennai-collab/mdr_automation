@@ -74,6 +74,18 @@ class TestPlants:
         first = repo.get_or_create("ONCE", "Plant")
         assert repo.get_or_create("ONCE", "Plant").id == first.id
 
+    def test_a_plant_selects_no_rules_workbook_unless_told(self, session):
+        """NULL is the deployment default - what the existing plant used
+        before the column existed, and what it keeps using."""
+        repo = PlantRepository(session)
+        plain = repo.add(code="4391", name="Project 4391")
+        own = repo.add(code="P-412", name="Project P-412",
+                       rules_workbook="p-412-rules.xlsx")
+        session.flush()
+        session.expire_all()
+        assert repo.get(plain.id).rules_workbook is None
+        assert repo.get(own.id).rules_workbook == "p-412-rules.xlsx"
+
 
 class TestSubmissionAndItsWorkbookMetadata:
 

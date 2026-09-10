@@ -18,7 +18,9 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import (
+    Alignment, Border, Font, NamedStyle, PatternFill, Protection, Side,
+)
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from app.domain.models.automation import AutomationRow
@@ -66,6 +68,19 @@ DOCUMENT_ROWS: tuple[int, ...] = (6, 7, 8, 10)
 HEADER_FILL = "FFD9D9D9"
 HEADER_FONT = "Arial"
 
+#: The yellow stripe the real sheet draws across row 3, from A to the anchor
+#: column and no further - the trailing date columns sit outside it. The
+#: exporter has to carry it across the five inserted columns rather than leave
+#: a white gap where the block is.
+BAND_ROW = 3
+BAND_FILL = "FFFFFF00"
+
+#: The named style the real sheet's trailing date captions wear (`Accent1`,
+#: beside the `Normal` of every text caption). It exists in the fixture so a
+#: header copied from the wrong caption is caught by its named style too.
+TRAILING_STYLE = "Accent1"
+TRAILING_NUMBER_FORMAT = "[$-409]d\\-mmm\\-yy;@"
+
 
 def build_source_workbook(path: Path, worked: bool = False) -> Path:
     """Write a small but structurally faithful MDR workbook to `path`.
@@ -92,15 +107,38 @@ def build_source_workbook(path: Path, worked: bool = False) -> Path:
     # the exporter.
     ws["H4"] = "SIGN-OFF"
     ws.merge_cells("H4:I4")
+    # The band across row 3 stops at the anchor column, as `A3:AK3` does on
+    # the real sheet - so the columns right of the insertion are *not* all
+    # alike, and copying the wrong neighbour shows.
+    thin = Side(style="thin")
+    for i in range(1, ANCHOR_COLUMN + 1):
+        cell = ws.cell(row=BAND_ROW, column=i)
+        cell.fill = PatternFill("solid", fgColor=BAND_FILL)
+        cell.font = Font(name=HEADER_FONT, size=13.5, bold=True)
+        cell.border = Border(top=thin, bottom=thin)
 
     # -- the header row ---------------------------------------------------
-    thin = Side(style="thin")
+    # Every caption shares the house style; the ones beside the insertion
+    # point differ the way the real sheet's do. `REMARKS`, left of the block,
+    # is a text caption in the `Normal` style with the `@` format, unlocked
+    # and vertically centred - the style `(PREPARED /NOT PREPARED BY
+    # MEDGULF)` has at AJ5 and the working sheet's five captions copy. The
+    # trailing block, right of it, carries a date format and a named style,
+    # as AK5 and AM5 do. The five new captions must inherit the former.
+    wb.add_named_style(NamedStyle(name=TRAILING_STYLE))
     for i, caption in enumerate(HEADERS, start=1):
         cell = ws.cell(row=HEADER_ROW, column=i, value=caption)
+        if i >= ANCHOR_COLUMN:
+            cell.style = TRAILING_STYLE     # first: it resets what follows
+            cell.number_format = TRAILING_NUMBER_FORMAT
         cell.font = Font(name=HEADER_FONT, size=11, bold=True)
         cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center",
+                                   wrap_text=True)
         cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        if i < ANCHOR_COLUMN:
+            cell.number_format = "@"
+            cell.protection = Protection(locked=False)
 
     # -- the data ---------------------------------------------------------
     for r, values in enumerate(DATA_ROWS, start=FIRST_DATA_ROW):

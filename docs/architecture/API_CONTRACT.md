@@ -1,9 +1,10 @@
-# API Contract — `/api/v1/mdr`
+# API Contract — `/api/v1/mdr` and `/api/v1/plants`
 
 **Status.** Delivery Phase 2 established this contract and the persistence
 behind it. Delivery Phase 3 implemented `upload`, `extract`, `automate` and
-`summary`. **Delivery Phase 4 implements `download`.** Every endpoint of v1
-is now implemented; nothing answers `501`.
+`summary`. Delivery Phase 4 implemented `download`. **The plant-readiness
+change adds `GET /api/v1/plants`** — a backward-compatible addition, so v1 it
+stays. Every endpoint of v1 is implemented; nothing answers `501`.
 
 The response fields are not aspirational. Each one is a column that already
 exists — see `backend/app/infrastructure/persistence/models.py` and
@@ -23,7 +24,8 @@ put in front of them later if measurements ever call for one; nothing has.
 
 ```
 /api/health                          operational, unversioned, forever
-/api/v1/mdr/...                      the product API
+/api/v1/plants                       the plants a submission can belong to
+/api/v1/mdr/...                      the product workflow
 ```
 
 **Why `/api/health` is not `/api/v1/health`.** Health is for a load balancer, a
@@ -53,6 +55,8 @@ reason that has nothing to do with monitoring.
 ## The workflow
 
 ```
+   GET /api/v1/plants                         → plant_id   (the user picks one)
+        │
    MDR workbook
         │
         ▼
@@ -109,6 +113,19 @@ explicitly. **Nothing creates a plant implicitly** — an upload naming an
 unknown plant is a `404`, and the API does not assume QatarEnergy-TN or any
 other plant is "the" plant.
 
+A plant is a **selectable entity**: the frontend lists them with
+`GET /api/v1/plants`, shows `code` and `name`, keeps `id`, and sends it as
+`plant_id` on upload. Switching plants in the frontend changes that one value
+and nothing else — no restart, no environment variable, no code. The frontend
+never types a UUID and never learns which rules a plant uses; that is decided
+on the backend when the submission is processed (see *Rule set* below).
+
+`code` is the plant's **business identifier** — the project number the
+workbook itself carries (`PROJECT NO.4391` on the `QatarEnergy-TN` sheet), or
+whatever the business calls the plant. It is unique. The one registered plant
+today has `code = QATARENERGY-TN`; renaming it to its project number is a data
+update, not a schema change.
+
 A fresh database has no plants. Register one before the first upload, from
 `backend/` with `MDR_DATABASE_URL` set (in the compose stack, prefix with
 `docker compose exec backend`):
@@ -122,21 +139,50 @@ with session_scope() as session:
 PY
 ```
 
-The printed UUID is the `plant_id` for `upload`. `register_plant` is
-idempotent by `code`. A plants endpoint is not part of v1 yet; adding one would
-be a backward-compatible addition when a frontend needs it.
+`register_plant` is idempotent by `code`. A plant that needs its own rules
+workbook is registered the same way and then given the workbook's filename
+(`PlantRepository.add(..., rules_workbook="p-412-rules.xlsx")`, or an
+`UPDATE plants SET rules_workbook = …`); a plant with `rules_workbook` NULL
+uses the deployment default, which is what the existing plant does.
 
 ### Rule set
 
-`automate` records **which rules produced the result**. Before running, it
-locates the rules workbook exactly as the engine does (`MDR_RULES_WORKBOOK`,
-else the first `.xlsx` in `data/rules/`), fingerprints it through
-`services.rule_set_service`, and finds-or-creates the `rule_sets` row by
-SHA-256 in the same transaction as the summary that points at it. Two
-submissions automated under the same workbook share one `rule_sets` row; an
-edited workbook produces a new one. See `RULE_VERSIONING.md`. With no rules
-workbook present, `automate` answers `422` and leaves the submission
-`EXTRACTED` — that is a deployment gap, not a fact about the submission.
+`automate` records **which rules produced the result**. The rules workbook is
+**the one the submission's plant selects**: `plants.rules_workbook` names a
+file under `data/rules/`; NULL means the deployment default
+(`MDR_RULES_WORKBOOK`, else the first `.xlsx` in `data/rules/`) — exactly
+the rules every submission used before plants could select one. `extract`
+uses the same workbook for `DOC TYPE`, so both steps see one set of rules.
+
+```
+plant ──selects──▶ rules workbook ──digest──▶ rule_sets row ◀── submission summary
+```
+
+`automate` fingerprints that workbook through `services.rule_set_service` and
+finds-or-creates the `rule_sets` row by SHA-256 in the same transaction as
+the summary that points at it. Therefore:
+
+* two plants naming the same workbook (or both using the default) **share one
+  `rule_sets` row** — the same rules are the same rule set, whoever runs them;
+* a plant naming its own workbook — the common rules plus its own DOC TYPE /
+  SOW keyword differences, maintained in Excel as one file — gets **its own
+  `rule_sets` row**, and its results point at it;
+* an edited workbook produces a new row, for every plant that names it;
+* an **existing submission keeps the `rule_set_id` it was automated under**.
+  Changing a plant's selection affects only submissions automated after the
+  change. Nothing rewrites history.
+
+The engine never branches on the plant. `MdrEngine`, the classifier and the
+SOW/IDB resolvers are handed a workbook path and know nothing else; there is
+no `if plant == …` anywhere below the workflow service, and there must not be.
+A plant-specific rule difference is a row in a rules workbook, not a branch.
+
+With no rules workbook present, `automate` answers `422` and leaves the
+submission `EXTRACTED`. With a plant whose selected workbook is **not
+installed**, both `extract` and `automate` answer `422` and leave the
+submission where it was — never a silent fall-back to another plant's rules.
+Both are deployment gaps, not facts about the submission. See
+`RULE_VERSIONING.md`.
 
 ### File storage
 
@@ -155,6 +201,38 @@ so an upload cannot land on a source workbook in `data/input/`, which stays
 mounted read-only. The four calls it exposes (`put`, `resolve`, `exists`,
 `delete`) are the surface an object store offers, which is what would replace
 it; PostgreSQL stores metadata and the key only, never the bytes.
+
+---
+
+## `GET /api/v1/plants`
+
+List the plants a submission can belong to.
+
+**A read, and nothing else.** No plant is created, no workbook opened, no
+engine run. Ordered by `code`.
+
+**Response** — `200 OK`
+
+```json
+[
+  {
+    "id": "48e0b832-be54-4d41-b85c-061b37ba59e6",
+    "code": "QATARENERGY-TN",
+    "name": "QatarEnergy TN"
+  }
+]
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | The value to send as `plant_id` to `POST /api/v1/mdr/upload`. |
+| `code` | The plant's business identifier (a project number, or a code like the one above). What a person recognises. |
+| `name` | Display name. |
+
+Exactly these three fields. The plant's rules workbook, timestamps and any
+other column are not exposed: a client selects a plant, and the backend
+decides what that means. An empty list means no plant is registered yet — see
+*Plants* above.
 
 ---
 
@@ -243,7 +321,7 @@ right sheet was read.
 |---|---|
 | `404` | No submission with that id. |
 | `409` | The submission is not `UPLOADED` — already extracted, automated, or `FAILED`. Nothing changes. |
-| `422` | The reader cannot process the workbook (a required sheet or column is missing). **The submission is now `FAILED`** with the reader's reason; the uploaded file is kept. |
+| `422` | The plant's selected rules workbook is not installed. The submission stays `UPLOADED`. Or: the reader cannot process the workbook (a required sheet or column is missing) — **the submission is now `FAILED`** with the reader's reason; the uploaded file is kept. |
 | `500` | A server-side failure — the stored file is missing, or PostgreSQL refused the write. **The submission is now `FAILED`** with the reason. |
 
 ---
@@ -296,7 +374,7 @@ changes. See `RULE_VERSIONING.md`.
 |---|---|
 | `404` | No submission with that id. |
 | `409` | The submission is not `EXTRACTED` — not yet extracted, already automated, or `FAILED`. Nothing changes. |
-| `422` | No rules workbook is available to fingerprint. The submission stays `EXTRACTED`. Or: the workbook cannot be read on re-open — **the submission is now `FAILED`**. |
+| `422` | No rules workbook is available to fingerprint, or the plant's selected one is not installed. The submission stays `EXTRACTED`. Or: the workbook cannot be read on re-open — **the submission is now `FAILED`**. |
 | `500` | The engine raised, its rows did not match the extracted rows by `source_row`, or PostgreSQL refused the write. **The submission is now `FAILED`** with the reason; no verdict is written to any row. |
 
 ---

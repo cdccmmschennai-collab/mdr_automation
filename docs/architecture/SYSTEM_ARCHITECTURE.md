@@ -177,6 +177,7 @@ the product API.
 | `POST /api/v1/mdr/{mdr_id}/automate` | Resolve the automation columns | works — Delivery Phase 3 |
 | `GET /api/v1/mdr/{mdr_id}/summary` | What the run produced | works — Delivery Phase 3 |
 | `GET /api/v1/mdr/{mdr_id}/download` | The automated workbook | works — Delivery Phase 4 |
+| `GET /api/v1/plants` | The plants a submission can belong to (`id`, `code`, `name`) | works — plant readiness |
 
 Delivery Phase 2 fixed the paths, methods and response shapes; Delivery Phases
 3 and 4 supplied the behaviour through `services/workflow_service.py`. No

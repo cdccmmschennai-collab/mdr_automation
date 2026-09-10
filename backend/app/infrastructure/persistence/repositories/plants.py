@@ -17,8 +17,12 @@ class PlantRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def add(self, code: str, name: str) -> Plant:
-        plant = Plant(code=code, name=name)
+    def add(self, code: str, name: str,
+            rules_workbook: Optional[str] = None) -> Plant:
+        """Create a plant. `rules_workbook` is the filename of its rules
+        workbook under `settings.rules_dir`; None selects the deployment
+        default - see `Plant.rules_workbook`."""
+        plant = Plant(code=code, name=name, rules_workbook=rules_workbook)
         self.session.add(plant)
         self.session.flush()          # assign the PK without committing
         return plant

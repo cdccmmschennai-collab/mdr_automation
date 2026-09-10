@@ -31,7 +31,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
-from .api.routes import health, mdr_v1
+from .api.routes import health, mdr_v1, plants_v1
 from .core.config import settings
 from .core.logging import configure_logging
 
@@ -48,9 +48,9 @@ def create_app() -> FastAPI:
         title="MDR Automation Tool",
         version=__version__,
         description=(
-            "MDR automation: upload, extract, automate, summary, download. "
-            "Product endpoints live under /api/v1; /api/health is "
-            "operational and unversioned."
+            "MDR automation: upload, extract, automate, summary, download, "
+            "and the plants a submission can belong to. Product endpoints "
+            "live under /api/v1; /api/health is operational and unversioned."
         ),
     )
     app.add_middleware(
@@ -61,6 +61,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(mdr_v1.router, prefix=API_V1_PREFIX)
+    app.include_router(plants_v1.router, prefix=API_V1_PREFIX)
     return app
 
 

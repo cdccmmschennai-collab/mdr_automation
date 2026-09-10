@@ -15,7 +15,8 @@ workbook is. What is stored is what the product needs in order to answer
 questions about a submission after the fact.
 
 Definitions: `backend/app/infrastructure/persistence/models.py`.
-Migration: `backend/alembic/versions/…-0001_delivery_phase_2_initial_schema.py`.
+Migrations: `backend/alembic/versions/…-0001_delivery_phase_2_initial_schema.py`,
+`…-0002_plants_rules_workbook.py`.
 
 ---
 
@@ -47,13 +48,24 @@ table exists so the second plant is a row rather than a migration.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID | **PK** |
-| `code` | VARCHAR(64) | **UNIQUE**. Business key, e.g. `QATARENERGY-TN`. |
-| `name` | TEXT | |
+| `id` | UUID | **PK**. What the API calls `plant_id`. |
+| `code` | VARCHAR(64) | **UNIQUE**. The business identifier — a project number such as `4391`, or `QATARENERGY-TN` as registered today. |
+| `name` | TEXT | Display name. |
+| `rules_workbook` | TEXT NULL | Filename under `data/rules/` of the rules workbook this plant's submissions are automated with. NULL = the deployment default. Migration 0002. |
 | `created_at`, `updated_at` | TIMESTAMPTZ | Server-defaulted. |
 
 `code` is unique because two plants sharing one would make every submission
 ambiguous.
+
+**`rules_workbook` is the plant → rule-set relationship**, and it is a column
+rather than a table because a plant selects one rules configuration. The rule
+set itself is still identified by content digest in `rule_sets`: two plants
+naming the same file (or both NULL) share one `rule_sets` row; a plant naming
+its own file — the common rules plus its own differences, as one workbook —
+produces its own. A filename, never a path: the service refuses anything
+with a directory component, and resolves it under `settings.rules_dir` only.
+A selected file that is not installed is refused at `extract`/`automate`
+(`422`), never silently replaced by the default. See `RULE_VERSIONING.md`.
 
 ---
 

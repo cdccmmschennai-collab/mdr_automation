@@ -87,6 +87,7 @@ from ..infrastructure.storage import (
 from .automation_service import run_automation
 from .export_service import AUTOMATED_WORKBOOK_SUFFIX, export_automated_workbook
 from .mdr_pipeline import MdrEngine
+from .rule_set_service import PlantRulesUnavailable, rules_workbook_for_plant
 from .submission_service import register_rule_set
 
 log = logging.getLogger(__name__)
@@ -159,7 +160,8 @@ class InvalidSubmissionState(WorkflowError):
 
 
 class RulesUnavailable(WorkflowError):
-    """No rules workbook exists to fingerprint, so no result can be recorded."""
+    """No rules workbook exists to fingerprint, so no result can be recorded -
+    or the submission's plant selects one that is not installed."""
 
 
 class ProcessingFailed(WorkflowError):
@@ -304,6 +306,27 @@ def _require_status(submission: MdrSubmission, expected: SubmissionStatus,
         f"(expected {expected.value})")
 
 
+def _plant_rules(submission: MdrSubmission, settings: Settings,
+                 override: Optional[Path] = None) -> Optional[Path]:
+    """The rules workbook for this submission: the one its plant selects.
+
+    `override` is the explicit path a caller (a test, a script) may pass and
+    wins outright; otherwise the plant's selection, else the deployment
+    default. A plant whose selected workbook is not installed is refused with
+    `RulesUnavailable` before any engine runs, so the submission keeps its
+    status: that is a deployment gap, not a fact about the submission.
+    """
+    if override is not None:
+        return Path(override)
+    plant = submission.plant
+    try:
+        return rules_workbook_for_plant(plant.rules_workbook,
+                                        plant_code=plant.code,
+                                        settings=settings)
+    except PlantRulesUnavailable as exc:
+        raise RulesUnavailable(str(exc)) from exc
+
+
 def _stored_workbook(storage: WorkbookStorage,
                      submission: MdrSubmission) -> Path:
     """The uploaded file, or a FileNotFoundError whose message names the key
@@ -387,8 +410,11 @@ def extract_submission(mdr_id: uuid.UUID, *,
     `MdrEngine.run()` is the existing Phase 1 + 2A pipeline: it reads the
     QatarEnergy-TN sheet, normalises identity and revision, determines the
     latest revision and, when a rules workbook is present, classifies DOC
-    TYPE. What it returns is stored as-is by `DocumentRowRepository.add_rows`,
-    with SOW, IDB and DOC WITH REV empty - those are the automate step.
+    TYPE. The rules workbook is the one the submission's plant selects
+    (`_plant_rules`), so DOC TYPE here and the automate step's verdicts come
+    from the same rules. What it returns is stored as-is by
+    `DocumentRowRepository.add_rows`, with SOW, IDB and DOC WITH REV empty -
+    those are the automate step.
 
     UPLOADED -> EXTRACTED, or -> FAILED with the reason, and the uploaded file
     is left in place either way.
@@ -398,9 +424,10 @@ def extract_submission(mdr_id: uuid.UUID, *,
         with session_scope(settings) as session:
             submission = _require(session, mdr_id)
             _require_status(submission, SubmissionStatus.UPLOADED, "extract")
+            rules = _plant_rules(submission, settings)
             workbook = _stored_workbook(store, submission)
 
-            result = MdrEngine(workbook).run()
+            result = MdrEngine(workbook, rules).run()
             discovery = result.discovery or {}
 
             DocumentRowRepository(session).add_rows(
@@ -447,26 +474,28 @@ def automate_submission(mdr_id: uuid.UUID, *,
     did not see the same workbook and the run fails rather than writing
     verdicts onto the wrong rows.
 
+    The rules workbook is the one the submission's plant selects
+    (`_plant_rules`; `rules_workbook` overrides it for callers that pass one).
     The rule set is registered (or found, by digest) in the same transaction
-    as the result that points at it. With no rules workbook to fingerprint
-    the step is refused before it starts (`RulesUnavailable`) and the
-    submission stays EXTRACTED: that is a deployment gap to fix, not a fact
-    about this submission.
+    as the result that points at it. With no rules workbook to fingerprint -
+    none installed, or the plant's selection missing - the step is refused
+    before it starts (`RulesUnavailable`) and the submission stays EXTRACTED:
+    that is a deployment gap to fix, not a fact about this submission.
 
     EXTRACTED -> AUTOMATED, or -> FAILED with the reason.
     """
     store = _storage(settings, storage)
-    rules = rules_workbook or settings.default_rules_workbook()
-    if rules is None or not Path(rules).is_file():
-        raise RulesUnavailable(
-            f"no rules workbook is available to fingerprint (looked in "
-            f"{settings.rules_dir}); nothing can be automated until one is "
-            f"installed")
 
     try:
         with session_scope(settings) as session:
             submission = _require(session, mdr_id)
             _require_status(submission, SubmissionStatus.EXTRACTED, "automate")
+            rules = _plant_rules(submission, settings, rules_workbook)
+            if rules is None or not Path(rules).is_file():
+                raise RulesUnavailable(
+                    f"no rules workbook is available to fingerprint (looked "
+                    f"in {settings.rules_dir}); nothing can be automated "
+                    f"until one is installed")
             workbook = _stored_workbook(store, submission)
 
             run = run_automation(workbook, rules)

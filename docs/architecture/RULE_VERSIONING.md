@@ -63,6 +63,53 @@ storage-adapter question and belongs to the phase that adds one. Until then, the
 operational implication is worth stating: **keep the old rules workbooks.** The
 database can tell you which one you need; it cannot hand it to you.
 
+## Plants and rule sets
+
+```
+                    PLANT  (plants.rules_workbook, NULL = default)
+                      │  selects a rules workbook by filename
+                      ▼
+              data/rules/<file>.xlsx
+                      │  fingerprinted by digest at automate
+                      ▼
+                  RULE SET  (rule_sets, one row per distinct content)
+                      │
+                      ▼
+                 MDR ENGINE  (handed the path; knows no plant)
+                      │
+                      ▼
+          mdr_processing_summaries.rule_set_id   (pinned, permanently)
+```
+
+The rule set is not owned by a plant, and a plant does not own rules. A plant
+**selects** a rules workbook; the workbook's content **is** the rule set. That
+one indirection gives both of the shapes the business needs:
+
+| | Plant A | Plant B |
+|---|---|---|
+| Same rules | `rules_workbook = NULL` (default) | `NULL`, or the default's filename — **same `rule_sets` row** |
+| Small differences | `NULL` | `plant-b-rules.xlsx`: the common rules plus B's own DOC TYPE / SOW keywords, as one workbook — **its own `rule_sets` row** |
+| Rules revised | the default file is replaced → new digest → new row for A | B's file is revised when B's rules change → new row for B |
+
+Where the differences are expressed: in Excel, in the sheets the reader
+already consumes (`REQUIRED-KEY DOC.WORDS`, `NOT REQUIRED-KEY DOC.WORDS`,
+`DOCUMENT TYPE`). A plant-specific rule is a row in that plant's workbook. It
+is **never** an `if plant == …` in `engine/`, and the workflow service passes
+the plant's workbook path down without looking inside it.
+
+Reproducibility is unchanged: `rule_set_id` on a stored summary is what it
+was when the result was produced. Changing which workbook a plant selects
+affects submissions automated *after* the change and no earlier one; the
+earlier rule set cannot be deleted while a result points at it (`RESTRICT`).
+
+Not implemented, deliberately: a composed rule set (a base workbook plus an
+override workbook merged at load time). Today one plant selects one file; a
+plant whose rules differ maintains one workbook that holds its full rules.
+If keeping several near-identical workbooks in step becomes a real cost, the
+composition belongs in `RulesWorkbookReader` / `rule_set_service` with the
+fingerprint covering both inputs — and nothing above the service, and nothing
+in `engine/`, would change.
+
 ## Three different versions, easily confused
 
 These are unrelated and are tracked separately:
@@ -106,6 +153,8 @@ Not implemented, and not claimed:
 * archiving the rules workbook itself;
 * re-running a submission under a new rule set (the schema is shaped for it —
   one `UNIQUE` constraint stands in the way, deliberately);
-* any UI or endpoint for choosing a rule set. Assigning a human label (`A`,
-  `B`) is possible through the repository but nothing calls it yet; the default
-  label is derived from the digest.
+* any UI or endpoint for choosing a rule set. A plant's selection is a
+  column set by an operator (`plants.rules_workbook`); no endpoint reads or
+  writes it, and `GET /api/v1/plants` does not expose it. Assigning a human
+  label (`A`, `B`) is possible through the repository but nothing calls it
+  yet; the default label is derived from the digest.

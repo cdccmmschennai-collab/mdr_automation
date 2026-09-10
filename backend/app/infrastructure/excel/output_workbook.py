@@ -54,7 +54,10 @@ formats or data validations - those are copied explicitly below.
 `Worksheet.insert_cols` moves cells and their styles but updates none of the
 sheet-level ranges, so column widths, merged ranges, conditional formats, data
 validations, the auto-filter and the frozen pane are all shifted explicitly by
-`_insert_columns`. Charts, images and pivot tables are not copied onto the
+`_insert_columns`. Nor does it style the cells it makes room for, as Excel
+would: the title rows above the captions are dressed like the displaced column
+by `_dress_title_rows`, so the band above the header runs unbroken across the
+block. Charts, images and pivot tables are not copied onto the
 *new* sheet by openpyxl at all; they survive on the original sheets, which are
 untouched. Formula cells keep their formulas and lose their cached values, so
 Excel recalculates them when the employee opens the file.
@@ -119,9 +122,12 @@ COLUMN_WIDTHS: dict[str, float] = {
 }
 
 #: The fill `QatarEnergy-TN WORKING` gives the five captions, so the automation
-#: block is as visible in the generated sheet as in the hand-made one. Applied
-#: over the sheet's own header style - font, border and alignment still come
-#: from the neighbouring captions, so only the colour marks the block out.
+#: block is as visible in the generated sheet as in the hand-made one. It is
+#: the *only* thing the working sheet changes: its `DOC WITH REV`..`CHECK
+#: STATUS` captions are cell-style-for-cell-style the `(PREPARED /NOT PREPARED
+#: BY MEDGULF)` caption beside them - font, border, alignment, `@` number
+#: format, protection and the `Normal` named style - with this colour swapped
+#: in for the fill's foreground. `_write_headers` does the same.
 HEADER_FILL_RGB = "FF00B050"
 
 
@@ -313,6 +319,7 @@ class AutomatedWorkbookWriter:
 
             dst = self._copy_sheet(wb, src)
             columns, reused, placement = self._resolve_columns(dst, header_row)
+            self._dress_title_rows(dst, header_row, placement[1], placement[2])
             self._write_headers(dst, header_row, columns, reused)
             written, outside = self._write_rows(dst, header_row, columns, by_row)
 
@@ -437,17 +444,53 @@ class AutomatedWorkbookWriter:
                 return caption, found
         return "", fallback
 
+    @staticmethod
+    def _dress_title_rows(ws, header_row: int, at: int, count: int) -> None:
+        """Style the inserted cells above the captions like the column they displaced.
+
+        `insert_cols` moves cells and leaves the new positions bare, so the
+        title band above the header - on `QatarEnergy-TN` the yellow stripe
+        across row 3, the rule under the merged title - would stop at AJ and
+        resume at AP with five white cells in between. `QatarEnergy-TN
+        WORKING` has no such gap: its AK..AO above the captions look exactly
+        as the source's AK did at those positions, i.e. like the anchor
+        column, which moved right with the insertion. That column is copied
+        here, row by row, down to the row above the captions. When the block
+        was appended and displaced nothing, the column to its left serves,
+        which is what Excel itself does with an inserted column.
+
+        The caption row and everything below it are written separately, and
+        a block that reused every caption inserted nothing and changes
+        nothing here.
+        """
+        if count <= 0 or header_row <= 1:
+            return
+        displaced = at + count
+        neighbour = displaced if displaced <= ws.max_column else at - 1
+        if neighbour < 1:
+            return
+        for row in range(1, header_row):
+            template = ws.cell(row=row, column=neighbour)
+            if not template.has_style:
+                continue
+            for col in range(at, at + count):
+                ws.cell(row=row, column=col)._style = copy(template._style)
+
     def _write_headers(self, ws, header_row: int, columns: dict[str, int],
                        reused: tuple[str, ...]) -> None:
         """Write the five captions, styled like the sheet's own headers.
 
-        The style is the neighbouring captions' own - font, size, border,
-        alignment and number format - with the working sheet's green fill on
-        top, which is the one thing it does differently from the columns
-        beside it. A caption that already existed keeps the style it had; the
-        employee put it there.
+        The style is the neighbouring caption's own, whole: font, border,
+        alignment, number format, protection and named style are copied as one
+        from the caption beside the block, and then the working sheet's green
+        is swapped into the fill's foreground - the one thing `QatarEnergy-TN
+        WORKING` does differently from the columns beside it. The fill keeps
+        the template's own background colour and pattern rather than being
+        built from scratch, so it is the same fill Excel wrote on the working
+        sheet, not merely the same colour. A caption that already existed
+        keeps the style it had; the employee put it there.
         """
-        template = self._header_template(ws, header_row, columns)
+        template = self._header_template(ws, header_row, columns, reused)
         for caption in AUTOMATION_COLUMNS:
             col = columns[caption]
             cell = ws.cell(row=header_row, column=col)
@@ -456,23 +499,44 @@ class AutomatedWorkbookWriter:
                 continue
             if template is not None:
                 cell._style = copy(template._style)
-            cell.fill = PatternFill("solid", fgColor=HEADER_FILL_RGB)
+                cell.fill = PatternFill(
+                    fill_type="solid", fgColor=HEADER_FILL_RGB,
+                    bgColor=copy(template.fill.bgColor))
+            else:
+                cell.fill = PatternFill(fill_type="solid",
+                                        fgColor=HEADER_FILL_RGB)
             ws.column_dimensions[get_column_letter(col)].width = \
                 COLUMN_WIDTHS[caption]
 
     @staticmethod
-    def _header_template(ws, header_row: int, columns: dict[str, int]):
-        """A header cell of the source sheet to copy the house style from.
+    def _header_template(ws, header_row: int, columns: dict[str, int],
+                         reused: tuple[str, ...]):
+        """The caption beside the block, to copy the house style from.
 
-        The right-most caption that is not one of ours: it carries the same
-        font, fill and border as every other header on the row, so the new
-        captions look like the ones beside them rather than like a new theme.
+        The nearest caption to the left of the block that is not one of ours,
+        which on `QatarEnergy-TN` is `(PREPARED /NOT PREPARED BY MEDGULF)`.
+        That is the caption `QatarEnergy-TN WORKING` styled its five from -
+        they match it in every style component but the fill - and it carries
+        the header style most of the row shares: Arial 11 bold, thin borders,
+        centred and wrapped, `@` number format, the `Normal` named style.
+
+        Not the right-most caption. The sheet's trailing columns are dates and
+        wear a date number format and the `Accent1` named style, which is not
+        what a text caption should inherit. A sheet with nothing to the left
+        of the block falls back to the nearest caption on its right, and a
+        block that reused every caption needs no template at all.
         """
+        new = [columns[c] for c in AUTOMATION_COLUMNS if c not in reused]
+        if not new:
+            return None
         ours = set(columns.values())
-        for cell in reversed(list(ws[header_row])):
-            if cell.column not in ours and clean(cell.value):
-                return cell
-        return None
+        captions = [c for c in ws[header_row]
+                    if c.column not in ours and clean(c.value)]
+        left = [c for c in captions if c.column < min(new)]
+        if left:
+            return left[-1]
+        right = [c for c in captions if c.column > max(new)]
+        return right[0] if right else None
 
     @staticmethod
     def _data_template(ws, header_row: int, columns: dict[str, int]):

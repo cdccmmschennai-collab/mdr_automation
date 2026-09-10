@@ -86,11 +86,20 @@ POST /api/v1/mdr/{mdr_id}/extract         works — Delivery Phase 3
 POST /api/v1/mdr/{mdr_id}/automate        works — Delivery Phase 3
 GET  /api/v1/mdr/{mdr_id}/summary         works — Delivery Phase 3
 GET  /api/v1/mdr/{mdr_id}/download        works — Delivery Phase 4
+GET  /api/v1/plants                       works — plant readiness
 ```
 
 That is the whole surface;
 `tests/integration/test_api_contract.py` asserts the live application serves
 exactly these and nothing else.
+
+`GET /api/v1/plants` (`api/routes/plants_v1.py` → `services/plant_service.py`)
+is the one endpoint outside the workflow: the list a frontend offers as a
+plant selector. It returns `id`, `code`, `name` and nothing else — which
+rules a plant uses is resolved on the backend from `plants.rules_workbook`
+when its submission is extracted and automated, and a client is not told.
+Plant selection establishes context (`submission.plant_id`); the backend
+determines the applicable rule set; the engine executes the rules.
 
 The five are named after the five things the product does — upload, extract,
 automate, summary, download — so the workflow is legible from the route table

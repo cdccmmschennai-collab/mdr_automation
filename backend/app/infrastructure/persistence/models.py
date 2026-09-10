@@ -59,15 +59,30 @@ class Plant(TimestampMixin, Base):
     identifiable as *this plant's* sixth submission. One row today
     (QatarEnergy-TN); the table exists so the second plant is a row rather than
     a migration.
+
+    A plant also selects its rules: `rules_workbook` names the workbook its
+    submissions are automated with. That is the whole of the plant -> rule-set
+    relationship. The engine never branches on the plant; it is handed the
+    workbook the plant selected, and the result records that workbook's
+    `rule_sets` row by digest exactly as before.
     """
 
     __tablename__ = "plants"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    #: Stable business key, e.g. `QATARENERGY-TN`. Unique: two plants sharing a
-    #: code would make every submission ambiguous.
+    #: Stable business key - the plant/project identifier the business uses,
+    #: e.g. `QATARENERGY-TN` or a project number such as `4391`. Unique: two
+    #: plants sharing a code would make every submission ambiguous.
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Which rules workbook this plant's submissions are automated with: a
+    #: filename under `settings.rules_dir`, never a path. NULL means the
+    #: deployment default (`MDR_RULES_WORKBOOK`, else the first `.xlsx` in
+    #: `rules_dir`) - which is what every plant used before this column
+    #: existed. Two plants naming the same file share one rule set, because
+    #: the rule set is identified by the file's digest, not by the plant. See
+    #: `services.rule_set_service.rules_workbook_for_plant`.
+    rules_workbook: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     submissions: Mapped[list["MdrSubmission"]] = relationship(
         back_populates="plant")
