@@ -1,9 +1,9 @@
 # API Contract — `/api/v1/mdr`
 
 **Status.** Delivery Phase 2 established this contract and the persistence
-behind it. **Delivery Phase 3 implements `upload`, `extract`, `automate` and
-`summary`.** `download` still returns `501 Not Implemented`; it is Delivery
-Phase 4.
+behind it. Delivery Phase 3 implemented `upload`, `extract`, `automate` and
+`summary`. **Delivery Phase 4 implements `download`.** Every endpoint of v1
+is now implemented; nothing answers `501`.
 
 The response fields are not aspirational. Each one is a column that already
 exists — see `backend/app/infrastructure/persistence/models.py` and
@@ -374,22 +374,62 @@ Two counters need reading carefully:
 
 Download the generated automated Excel workbook.
 
+**A read, and nothing else.** No engine runs and no table is written: the
+status, the timestamps, the rows and the summary are exactly as `automate` left
+them, and asking twice generates the same file twice. The download is valid
+only for an `AUTOMATED` submission.
+
 **Response** — `200 OK`,
 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, as a
-`Content-Disposition: attachment` byte stream. Not JSON, so no `response_model`.
+`Content-Disposition: attachment` byte stream with `Content-Length`. Not JSON,
+so no `response_model`.
 
-The workbook is a copy of the uploaded file carrying every sheet it arrived
-with, plus one added sheet named **`QatarEnergy-TN Automated`**. The writer
-already exists (`infrastructure/excel/output_workbook.py`); serving it over HTTP
-is Delivery Phase 4.
+The filename is the uploaded filename's stem plus `_MDR_AUTOMATED.xlsx` — the
+same name the CLI's `--excel` gives the file — passed through the storage
+adapter's `safe_filename`, so it carries no path and nothing an HTTP header
+cannot. Server paths never appear in the header or in any error body.
+
+**What the workbook is.** The stored upload, copied, with one sheet added:
+
+* every original sheet is present, in its original order, with its content
+  unchanged — formulas as formulas, formatting, merged cells, conditional
+  formats, data validations, auto-filter and frozen panes included;
+* one added sheet, last in the book, named exactly **`QatarEnergy-TN
+  Automated`**: a copy of `QatarEnergy-TN` carrying the five automation columns
+  `DOC WITH REV`, `DOC TYPE`, `DOC IS REQUIRED SOW`, `DOC IDB COMPLETED STATUS`
+  and `CHECK STATUS`, inserted where `QatarEnergy-TN WORKING` puts them;
+* the four values come **from `mdr_document_rows`**, written onto the row with
+  the same `source_row` — never by position, so a source row extraction
+  skipped (a spacer, a row with no `DOCUMENT NO.`) keeps five empty cells;
+* `CHECK STATUS` is present and empty on every row (`check_status_populated`
+  is `0`; see `summary`).
+
+**How it is produced.** `services.workflow_service.download_submission` reads
+the submission's rows and summary in one read-only transaction, rebuilds the
+engine's `AutomationRow`s from them, and hands them with the stored upload to
+`export_automated_workbook` — the Delivery Phase 1 writer
+(`infrastructure/excel/output_workbook.py`), unchanged. There is no second
+Excel implementation. The file is written to a temporary directory outside
+every data directory, streamed, and removed when the response has been sent,
+however it ended. Nothing is stored: no output file, no output column.
+
+**Integrity.** Before anything is generated the stored upload is checked
+against `source_sha256`, and the persisted rows against the persisted summary:
+the row count must equal `row_count`, the four populated counters must agree
+with the rows, and every `source_row` must lie below the recorded header row.
+After writing, the sheet and header row the writer found must be the ones
+extraction recorded, and every row must have been written. A result that fails
+any of these is refused with `500` — never trimmed, padded or recomputed — and
+the submission is left as it was.
 
 **Errors**
 
 | Status | When |
 |---|---|
-| `404` | No submission with that id, or no generated workbook for it. |
-| `409` | The submission has not been automated. |
-| `501` | Delivery Phase 2 — not implemented. |
+| `404` | No submission with that id. |
+| `409` | The submission is not `AUTOMATED` — `UPLOADED`, `EXTRACTED` or `FAILED`. Nothing changes. |
+| `422` | `mdr_id` is not a UUID. |
+| `500` | The stored upload is missing, does not match its recorded digest or cannot be opened; the persisted rows are inconsistent with the summary or the workbook; or the writer failed. The submission is **unchanged** — it stays `AUTOMATED`, with no `failure_reason`. The body names the submission and the kind of failure, never a server path. |
 
 ---
 

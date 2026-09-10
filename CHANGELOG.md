@@ -5,6 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Delivery Phase 4: download
+
+`GET /api/v1/mdr/{mdr_id}/download` is implemented. Every v1 endpoint now
+works; nothing answers `501`.
+
+- `services/workflow_service.py` — `download_submission`: for an `AUTOMATED`
+  submission, reads the persisted rows and summary in one read-only
+  transaction, rebuilds the engine's `AutomationRow`s from
+  `mdr_document_rows`, and hands them with the stored upload to the existing
+  Phase 1 writer through `export_service.export_automated_workbook`. No
+  engine runs, no table is written, no second Excel implementation exists.
+  The file is generated into a temporary directory outside every data
+  directory and removed after the response; nothing is stored and no output
+  column was added. Returns a `DownloadArtifact` (path, safe filename, media
+  type, writer report, `cleanup()`).
+- Integrity before generating: the stored upload must match `source_sha256`;
+  the rows must be non-empty, unique by `source_row`, equal in number to the
+  summary's `row_count`, agree with its four populated counters, and lie
+  below the recorded header row. After writing: the sheet and header row the
+  writer found must be the ones extraction recorded, and every row written.
+  Any failure is `DownloadFailed` → `500`, the result is never trimmed or
+  recomputed, and the submission stays `AUTOMATED` (download is a read).
+- Errors: `404` unknown id; `409` for `UPLOADED`, `EXTRACTED` and `FAILED`
+  (the state hint now says "has not been automated yet" for `EXTRACTED`
+  when `AUTOMATED` is expected); `500` for a missing/corrupt stored upload,
+  inconsistent rows or a writer failure — the body names the submission and
+  the kind of failure, never a server path.
+- Filename: uploaded stem + `_MDR_AUTOMATED.xlsx` (the CLI's own name),
+  through `safe_filename`; served as `Content-Disposition: attachment` by a
+  `FileResponse` subclass whose cleanup runs in a `finally`, so a client
+  that disconnects mid-stream leaves no temporary file behind.
+- Docs: `API_CONTRACT.md` download section written out (behaviour,
+  guarantees, integrity, errors); `API_ARCHITECTURE.md` and
+  `SYSTEM_ARCHITECTURE.md` route tables no longer say `501`.
+- Tests: `tests/api/test_download_api.py` (success, headers and filename
+  safety, openpyxl round-trip, sheet/formula/format/merge/CF/DV/filter/pane
+  preservation, persisted values by `source_row` including the skipped row,
+  blank CHECK STATUS, source and database untouched, no engine call, every
+  refusal and server failure, each inconsistency, temporary-file cleanup
+  including the failed-send path); `test_workflow_real_workbook.py` gains
+  the download stage over the real ~22k-row workbook with the Phase 1 counts
+  pinned as literals (rows 21,718; DOC WITH REV 21,718; DOC TYPE 16,369; SOW
+  14,988; DOC IDB COMPLETED STATUS 13,230; CHECK STATUS 0). The two
+  "download answers 501" assertions were replaced by their Phase 4 behaviour.
+
 ### Added — Delivery Phase 3: upload → extract → automate → summary
 
 The `/api/v1/mdr` workflow now works end to end against PostgreSQL, running

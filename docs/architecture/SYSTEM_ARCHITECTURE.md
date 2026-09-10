@@ -172,16 +172,19 @@ the product API.
 | Endpoint | Purpose | Status |
 |---|---|---|
 | `GET /api/health` | Proves the boundary without touching MDR logic | works |
-| `POST /api/v1/mdr/upload` | Create a submission from a workbook | 501 |
-| `POST /api/v1/mdr/{mdr_id}/extract` | Read and normalise it | 501 |
-| `POST /api/v1/mdr/{mdr_id}/automate` | Resolve the automation columns | 501 |
-| `GET /api/v1/mdr/{mdr_id}/summary` | What the run produced | 501 |
-| `GET /api/v1/mdr/{mdr_id}/download` | The automated workbook | 501 |
+| `POST /api/v1/mdr/upload` | Create a submission from a workbook | works — Delivery Phase 3 |
+| `POST /api/v1/mdr/{mdr_id}/extract` | Read and normalise it | works — Delivery Phase 3 |
+| `POST /api/v1/mdr/{mdr_id}/automate` | Resolve the automation columns | works — Delivery Phase 3 |
+| `GET /api/v1/mdr/{mdr_id}/summary` | What the run produced | works — Delivery Phase 3 |
+| `GET /api/v1/mdr/{mdr_id}/download` | The automated workbook | works — Delivery Phase 4 |
 
-Delivery Phase 2 fixed the paths, methods and response shapes; the behaviour is
-Delivery Phase 3 and 4. No handler touches the database, runs the engine or
-returns a fabricated result. `GET /api/mdr/summary` was removed with the move to
-`/api/v1`. See [API_ARCHITECTURE.md](API_ARCHITECTURE.md) and
+Delivery Phase 2 fixed the paths, methods and response shapes; Delivery Phases
+3 and 4 supplied the behaviour through `services/workflow_service.py`. No
+handler touches the database, runs the engine or returns a fabricated result:
+each calls one service function. `download` reuses the Phase 1 writer
+(`export_service` → `infrastructure/excel/output_workbook.py`) over the
+persisted rows. `GET /api/mdr/summary` was removed with the move to `/api/v1`.
+See [API_ARCHITECTURE.md](API_ARCHITECTURE.md) and
 [API_CONTRACT.md](API_CONTRACT.md).
 
 ### Persistence — `backend/app/infrastructure/persistence/`

@@ -33,7 +33,7 @@ Excel → PostgreSQL → API → download → Docker → freeze. This scheme res
 | PostgreSQL + persistence | — | `DATABASE_SCHEMA`, `RULE_VERSIONING` | Phase 2 | done |
 | API structure + `/api/v1` contract | — | `API_CONTRACT` | Phase 2 | done (routes return 501) |
 | Upload / process / summary API | — | `phase-07-web-application` | Phase 3 | not started |
-| Excel download endpoint | — | `phase-07-web-application` | Phase 4 | not started |
+| Excel download endpoint | — | `phase-07-web-application` | Phase 4 | done |
 | Docker local development | — | — | Phase 5 | not started |
 | Hardening + API freeze | — | — | Phase 6 | not started |
 

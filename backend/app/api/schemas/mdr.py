@@ -8,7 +8,8 @@ implement or break.
 
 Delivery Phase 2 fixed these shapes and answered every endpoint with 501.
 Delivery Phase 3 implements upload, extract, automate and summary against
-them; download remains Phase 4. The Phase 3 additions to `SummaryResponse`
+them; Delivery Phase 4 implements download, whose response is an xlsx byte
+stream and has no schema here. The Phase 3 additions to `SummaryResponse`
 (`plant_code`, `extracted_at`, `failure_reason`) are backward-compatible: new
 fields, all optional or defaulted.
 """

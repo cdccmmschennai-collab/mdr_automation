@@ -1,4 +1,4 @@
-"""The product workflow: upload -> extract -> automate -> summary (Phase 3).
+"""The product workflow: upload -> extract -> automate -> summary -> download.
 
 This is the application layer behind `/api/v1/mdr`. Each function here is one
 workflow step, owns one transaction, and composes what already exists:
@@ -7,14 +7,21 @@ workflow step, owns one transaction, and composes what already exists:
                           |-> infrastructure.storage         (the workbook)
                           |-> services.mdr_pipeline.MdrEngine
                           |-> services.automation_service    (the engine)
-                          `-> services.rule_set_service      (which rules)
+                          |-> services.rule_set_service      (which rules)
+                          `-> services.export_service        (the .xlsx)
 
 No MDR rule lives here. Extraction is `MdrEngine.run()`, exactly as the CLI
-runs it; automation is `run_automation()`, exactly as `--excel` runs it. The
-rows that reach the database are the `DocumentRecord`s and `AutomationRow`s
-those produce, mapped by the existing repository. What this module adds is the
-sequencing, the state checks, the transaction boundaries and the failure
-bookkeeping - the things an HTTP workflow needs that a CLI run does not.
+runs it; automation is `run_automation()`, exactly as `--excel` runs it; the
+downloaded workbook is `export_automated_workbook()`, exactly as `--excel`
+writes it. The rows that reach the database are the `DocumentRecord`s and
+`AutomationRow`s those produce, mapped by the existing repository. What this
+module adds is the sequencing, the state checks, the transaction boundaries
+and the failure bookkeeping - the things an HTTP workflow needs that a CLI run
+does not.
+
+Delivery Phase 3 implemented the first four steps; Delivery Phase 4 adds
+`download_submission`, which runs no engine at all: it rebuilds the
+`AutomationRow`s from the persisted rows and hands them to the Phase 1 writer.
 
 **State.** The lifecycle is `domain.enums.lifecycle` unchanged:
 
@@ -49,6 +56,8 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -57,20 +66,26 @@ from typing import Optional
 from .. import __version__ as BACKEND_VERSION
 from ..core.config import Settings, settings as default_settings
 from ..domain.enums.lifecycle import SubmissionStatus
+from ..domain.models.automation import AutomationRow, CheckStatusNotEvaluated
 from ..infrastructure.excel.mdr_workbook import probe_document_sheet
+from ..infrastructure.excel.output_workbook import WorkbookWriteReport
 from ..infrastructure.excel.workbook_reader import (
     ColumnNotFoundError, SheetNotFoundError, WorkbookUnreadableError,
 )
+from ..infrastructure.filesystem.artifact_writer import sha256_file
 from ..infrastructure.persistence.database import session_scope
 from ..infrastructure.persistence.models import (
-    MdrProcessingSummary, MdrSubmission, Plant, RuleSet,
+    MdrDocumentRow, MdrProcessingSummary, MdrSubmission, Plant, RuleSet,
 )
 from ..infrastructure.persistence.repositories import (
     DocumentRowRepository, PlantRepository, ProcessingSummaryRepository,
     SubmissionRepository,
 )
-from ..infrastructure.storage import LocalWorkbookStorage, WorkbookStorage
+from ..infrastructure.storage import (
+    LocalWorkbookStorage, WorkbookStorage, safe_filename,
+)
 from .automation_service import run_automation
+from .export_service import AUTOMATED_WORKBOOK_SUFFIX, export_automated_workbook
 from .mdr_pipeline import MdrEngine
 from .submission_service import register_rule_set
 
@@ -94,6 +109,27 @@ _WORKBOOK_ERRORS = (WorkbookUnreadableError, SheetNotFoundError,
 #: filename and the rule set the rules filename, so the paths add nothing a
 #: client should see and are not persisted.
 _DISCOVERY_PATHS = ("workbook", "rules_workbook")
+
+#: The media type of the workbook `download_submission` produces. The writer
+#: always saves `.xlsx` (see `AUTOMATED_WORKBOOK_SUFFIX`), whatever the upload
+#: was called.
+XLSX_MEDIA_TYPE = ("application/vnd.openxmlformats-officedocument"
+                   ".spreadsheetml.sheet")
+
+#: Prefix of the temporary directory each download is generated into. Under
+#: the system temporary directory, never under `uploads_dir` or any data
+#: directory: the generated file is a response body, not a stored artefact.
+_DOWNLOAD_TMP_PREFIX = "mdr-download-"
+
+#: `MdrProcessingSummary` counters that `download_submission` recomputes from
+#: the persisted rows and requires to agree. Each is `AutomationRun.summary()`
+#: counting one non-empty column; the row-side attribute is named beside it.
+_POPULATED_COUNTERS: tuple[tuple[str, str], ...] = (
+    ("doc_with_rev_populated", "doc_with_rev"),
+    ("doc_type_populated", "doc_type"),
+    ("sow_populated", "sow"),
+    ("idb_populated", "idb_status"),
+)
 
 
 # ------------------------------------------------------------------ errors
@@ -138,6 +174,18 @@ class ProcessingFailed(WorkflowError):
         self.client_error = client_error
 
 
+class DownloadFailed(WorkflowError):
+    """The automated workbook could not be generated from what is stored.
+
+    Raised when the stored workbook is missing or is not the file that was
+    uploaded, when the persisted rows do not agree with the persisted summary
+    or with the workbook, or when the writer fails. It is a server-side
+    condition (HTTP 500), and unlike `ProcessingFailed` it changes nothing:
+    download is a read, and a failure to serve a result is not a fact about
+    the result, so the submission stays AUTOMATED and keeps its history.
+    """
+
+
 # ----------------------------------------------------------------- results
 
 @dataclass(frozen=True)
@@ -163,6 +211,36 @@ class SubmissionSummary:
     plant: Plant
     summary: Optional[MdrProcessingSummary]
     rule_set: Optional[RuleSet]
+
+
+@dataclass(frozen=True)
+class DownloadArtifact:
+    """What `download_submission` hands back: a generated workbook that exists
+    only to be served once.
+
+    `path` is inside `workdir`, a temporary directory created for this call
+    alone. The route streams `path` and then calls `cleanup()`; nothing else
+    references the file, no database column points at it, and a second
+    download generates it again from the same persisted rows.
+    """
+
+    submission: MdrSubmission
+    #: The generated workbook.
+    path: Path
+    #: The temporary directory `path` lives in; `cleanup()` removes it whole.
+    workdir: Path
+    #: The name the client should save the file under. Derived from the
+    #: uploaded filename through `safe_filename`, so it carries nothing an
+    #: HTTP header cannot - and never a server path.
+    filename: str
+    media_type: str
+    #: What the writer did, for logging and for tests to assert against.
+    report: WorkbookWriteReport
+
+    def cleanup(self) -> None:
+        """Remove the generated workbook and its directory. Idempotent: a
+        second call, or a call after a partial failure, finds nothing to do."""
+        shutil.rmtree(self.workdir, ignore_errors=True)
 
 
 # ------------------------------------------------------------------ helpers
@@ -216,6 +294,9 @@ def _require_status(submission: MdrSubmission, expected: SubmissionStatus,
         hint = ("it is FAILED; upload the workbook again as a new submission")
     elif submission.status == SubmissionStatus.UPLOADED.value:
         hint = "it has not been extracted yet"
+    elif (submission.status == SubmissionStatus.EXTRACTED.value
+          and expected == SubmissionStatus.AUTOMATED):
+        hint = "it has not been automated yet"
     else:
         hint = f"it is already {submission.status}"
     raise InvalidSubmissionState(
@@ -452,3 +533,200 @@ def summarise_submission(mdr_id: uuid.UUID, *,
         rule_set = summary.rule_set if summary is not None else None
     return SubmissionSummary(submission=submission, plant=plant,
                              summary=summary, rule_set=rule_set)
+
+
+# ----------------------------------------------------------------- download
+
+def download_filename(source_filename: str) -> str:
+    """The name the generated workbook is offered under.
+
+    The uploaded name's stem plus the export service's own suffix - the same
+    name the CLI's `--excel` gives the file, so an employee sees the same
+    thing whichever way it was produced. Passed through `safe_filename` first:
+    the result holds letters, digits, spaces and a few punctuation marks, so
+    it cannot carry a path, a quote or a control character into a
+    `Content-Disposition` header.
+    """
+    stem = Path(safe_filename(source_filename)).stem
+    return stem + AUTOMATED_WORKBOOK_SUFFIX
+
+
+def _automation_row(stored: MdrDocumentRow) -> AutomationRow:
+    """One persisted row as the `AutomationRow` the writer takes.
+
+    `check_status` is passed through deliberately: the column is constrained
+    to the empty string and `AutomationRow` refuses anything else, so a row
+    that somehow carried a value raises here rather than being written.
+    """
+    return AutomationRow(
+        source_row=stored.source_row,
+        doc_with_rev=stored.doc_with_rev,
+        doc_type=stored.doc_type,
+        sow=stored.sow,
+        idb_status=stored.idb_completed_status,
+        check_status=stored.check_status,
+        doc_type_rule=stored.doc_type_rule,
+        sow_source=stored.sow_source,
+        idb_source=stored.idb_source,
+    )
+
+
+def _persisted_automation_rows(session, submission: MdrSubmission
+                               ) -> list[AutomationRow]:
+    """The automation result exactly as PostgreSQL holds it, or a
+    `DownloadFailed` naming what is wrong with it.
+
+    Every check is against what the automate step itself persisted - the
+    summary's row count and populated counters, and the header row extraction
+    recorded. Nothing is recomputed from the workbook and no engine runs: the
+    question is whether the stored result is whole, not whether it is right.
+    A result that fails a check is not repaired, filtered or padded; the
+    download refuses, because a workbook that quietly omitted rows would look
+    finished.
+    """
+    summary = ProcessingSummaryRepository(session).for_submission(submission.id)
+    if summary is None:
+        raise DownloadFailed(
+            f"submission {submission.id} is AUTOMATED but has no processing "
+            f"summary")
+    header_row = submission.source_header_row
+    if header_row is None:
+        raise DownloadFailed(
+            f"submission {submission.id} is AUTOMATED but records no header "
+            f"row for its document sheet")
+
+    stored = DocumentRowRepository(session).for_submission(submission.id)
+    if not stored:
+        raise DownloadFailed(
+            f"submission {submission.id} is AUTOMATED but has no document rows")
+
+    source_rows = [r.source_row for r in stored]
+    if len(set(source_rows)) != len(source_rows):
+        raise DownloadFailed(
+            f"submission {submission.id} holds duplicate source rows")
+    if len(stored) != summary.row_count:
+        raise DownloadFailed(
+            f"submission {submission.id} holds {len(stored)} document rows "
+            f"but its processing summary records {summary.row_count}")
+    outside = [r for r in source_rows if r <= header_row]
+    if outside:
+        raise DownloadFailed(
+            f"submission {submission.id} holds {len(outside)} document rows "
+            f"at or above header row {header_row} of its document sheet")
+
+    try:
+        rows = [_automation_row(r) for r in stored]
+    except CheckStatusNotEvaluated as exc:
+        raise DownloadFailed(
+            f"submission {submission.id} holds a CHECK STATUS value, which "
+            f"nothing evaluates yet") from exc
+
+    disagreeing = [
+        counter for counter, attribute in _POPULATED_COUNTERS
+        if sum(1 for r in rows if getattr(r, attribute))
+        != getattr(summary, counter)
+    ]
+    if disagreeing:
+        raise DownloadFailed(
+            f"the document rows of submission {submission.id} disagree with "
+            f"its processing summary on {', '.join(disagreeing)}")
+    return rows
+
+
+def _check_written(submission: MdrSubmission, rows: list[AutomationRow],
+                   report: WorkbookWriteReport) -> None:
+    """The writer must have found the sheet extraction found, at the header
+    row extraction found, and written every row. A difference means the
+    stored workbook is not the one the rows were extracted from."""
+    if report.source_sheet != (submission.source_sheet_name or ""):
+        raise DownloadFailed(
+            f"the stored workbook of submission {submission.id} carries its "
+            f"documents on sheet {report.source_sheet!r} but extraction read "
+            f"{submission.source_sheet_name!r}")
+    if report.header_row != submission.source_header_row:
+        raise DownloadFailed(
+            f"the stored workbook of submission {submission.id} has its "
+            f"header at row {report.header_row} but extraction recorded row "
+            f"{submission.source_header_row}")
+    if report.rows_outside_sheet or report.rows_written != len(rows):
+        raise DownloadFailed(
+            f"wrote {report.rows_written} of {len(rows)} automation rows for "
+            f"submission {submission.id}; {len(report.rows_outside_sheet)} "
+            f"fell outside the document sheet")
+
+
+def download_submission(mdr_id: uuid.UUID, *,
+                        settings: Settings = default_settings,
+                        storage: Optional[WorkbookStorage] = None,
+                        ) -> DownloadArtifact:
+    """Generate the automated workbook for an AUTOMATED submission.
+
+    Runs nothing. The rows are read from `mdr_document_rows` as the automate
+    step left them, rebuilt as `AutomationRow`s, and handed to
+    `export_automated_workbook` - the Phase 1 writer the CLI's `--excel`
+    uses - together with the stored upload. The result is therefore the
+    employee's own workbook, every sheet in its original order, plus the
+    `QatarEnergy-TN Automated` sheet populated from the database and mapped
+    by `source_row`. The writer's guarantees (formulas, formatting, merges,
+    conditional formats, validations, filter, frozen pane; CHECK STATUS
+    blank; the source never written) are inherited, not re-implemented.
+
+    The database is touched inside one read-only `session_scope` and released
+    before the workbook is opened: generating the real ~22k-row file takes
+    long enough that holding a transaction across it would be a cost with no
+    benefit. Nothing is written to any table - a download changes no status,
+    no timestamp and no row.
+
+    The stored upload is verified against `source_sha256` before it is read,
+    so a file that has been replaced, truncated or corrupted since upload is
+    refused as such rather than surfacing as a writer error. The generated
+    file is written to a fresh temporary directory, never beside the upload
+    and never under a data directory; the caller owns it through
+    `DownloadArtifact.cleanup()`. On any failure the directory is removed
+    here and nothing is left behind.
+
+    Only AUTOMATED is accepted. UPLOADED, EXTRACTED and FAILED are refused
+    with `InvalidSubmissionState`; there is nothing to download from them.
+    """
+    store = _storage(settings, storage)
+    with session_scope(settings) as session:
+        submission = _require(session, mdr_id)
+        _require_status(submission, SubmissionStatus.AUTOMATED, "download")
+        rows = _persisted_automation_rows(session, submission)
+
+    try:
+        source = _stored_workbook(store, submission)
+    except FileNotFoundError as exc:
+        # The message names the storage key, not the server's directory.
+        raise DownloadFailed(
+            f"cannot download submission {mdr_id}: {exc}") from exc
+    if sha256_file(source) != submission.source_sha256:
+        raise DownloadFailed(
+            f"cannot download submission {mdr_id}: the stored workbook does "
+            f"not match the digest recorded at upload")
+
+    filename = download_filename(submission.source_filename)
+    workdir = Path(tempfile.mkdtemp(prefix=_DOWNLOAD_TMP_PREFIX))
+    try:
+        report = export_automated_workbook(
+            source, rows, workdir, destination=workdir / filename)
+        _check_written(submission, rows, report)
+    except WorkflowError:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(workdir, ignore_errors=True)
+        log.exception("could not generate the download for submission %s",
+                      mdr_id)
+        # The type name says what kind of failure it was; the message may
+        # quote a server path, so it stays in the log.
+        raise DownloadFailed(
+            f"cannot download submission {mdr_id}: the automated workbook "
+            f"could not be generated ({type(exc).__name__})") from exc
+
+    log.info("submission %s download generated: %d rows on sheet %r as %s",
+             submission.id, report.rows_written, report.automated_sheet,
+             filename)
+    return DownloadArtifact(submission=submission, path=report.destination,
+                            workdir=workdir, filename=filename,
+                            media_type=XLSX_MEDIA_TYPE, report=report)

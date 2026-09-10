@@ -12,8 +12,11 @@ nested resources because the workflow is genuinely procedural; if extract and
 automate ever become long-running background work, the job resource that
 follows will be added then, on evidence.
 
-Delivery Phase 3 implements the first four through `services.workflow_service`.
-**`download` still returns `501 Not Implemented`**: it is Delivery Phase 4.
+All five go through `services.workflow_service`: Delivery Phase 3 implemented
+the first four, Delivery Phase 4 the download. The download answers with the
+generated workbook itself rather than JSON, so its handler returns a file
+response over a temporary file the service produced and removes that file
+once the response has been sent.
 
 A handler here does four things and no more: read the request, call one
 service function, translate a `WorkflowError` into an HTTP status, and shape
@@ -26,8 +29,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Callable
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from ...core.config import Settings
 from ...services import workflow_service as workflow
@@ -41,8 +46,6 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mdr", tags=["mdr"])
 
-_DOWNLOAD_PHASE = "Delivery Phase 4"
-
 
 def _error(code: int, description: str) -> dict:
     return {code: {"model": ErrorResponse, "description": description}}
@@ -51,6 +54,10 @@ def _error(code: int, description: str) -> dict:
 _NOT_FOUND = _error(404, "No submission with that id.")
 _CONFLICT = _error(409, "The submission is not in a status this step starts from.")
 _FAILED = _error(422, "The workbook cannot be processed; the submission is FAILED.")
+_DOWNLOAD_FAILED = _error(
+    500, "The stored workbook is missing or unreadable, the persisted result "
+         "is inconsistent, or the workbook could not be generated. The "
+         "submission is unchanged.")
 
 
 def _http(exc: workflow.WorkflowError) -> HTTPException:
@@ -70,9 +77,32 @@ def _http(exc: workflow.WorkflowError) -> HTTPException:
         code = 422
     elif isinstance(exc, workflow.ProcessingFailed):
         code = 422 if exc.client_error else 500
+    elif isinstance(exc, workflow.DownloadFailed):
+        code = 500
     else:                                                # pragma: no cover
         code = 500
     return HTTPException(status_code=code, detail=str(exc))
+
+
+class _EphemeralFileResponse(FileResponse):
+    """A file response over a file that exists for this response alone.
+
+    `cleanup` runs once the send has finished, however it finished. Starlette's
+    own `background=` hook runs only after a *successful* send, which would
+    leave the temporary workbook behind whenever the client went away
+    mid-stream; a `finally` does not. Idempotent cleanup is the service's
+    promise, so running it after a failure is safe.
+    """
+
+    def __init__(self, *args, cleanup: Callable[[], None], **kwargs):
+        super().__init__(*args, **kwargs)
+        self._cleanup = cleanup
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._cleanup()
 
 
 def _rule_set_ref(rule_set) -> RuleSetRef:
@@ -210,19 +240,30 @@ def summary(mdr_id: uuid.UUID,
 # ----------------------------------------------------------------- download
 
 @router.get("/{mdr_id}/download",
-            responses=_error(501,
-                             "Not implemented until Delivery Phase 4."),
+            response_class=FileResponse,
+            responses={
+                200: {
+                    "description": "The automated workbook, as an attachment.",
+                    "content": {workflow.XLSX_MEDIA_TYPE: {}},
+                },
+                **_NOT_FOUND,
+                **_error(409, "The submission is not AUTOMATED."),
+                **_DOWNLOAD_FAILED,
+            },
             summary="Download the generated automated Excel workbook")
-async def download(mdr_id: uuid.UUID) -> None:
-    """Stream the workbook carrying the `QatarEnergy-TN Automated` sheet.
+def download(mdr_id: uuid.UUID,
+             settings: Settings = Depends(get_settings)) -> FileResponse:
+    """Stream the uploaded workbook plus the `QatarEnergy-TN Automated` sheet.
 
-    No `response_model`: the eventual response is an xlsx byte stream, not
-    JSON. The writer that produces it already exists
-    (`infrastructure.excel.output_workbook`); serving it over HTTP is Phase 4.
+    AUTOMATED only; a read. The service rebuilds the sheet from the persisted
+    rows through the existing Phase 1 writer - no engine runs - into a
+    temporary file, which is streamed here and removed when the response is
+    done. No `response_model`: the body is an xlsx byte stream, not JSON.
     """
-    raise HTTPException(
-        status_code=501,
-        detail=(f"download is not implemented: Delivery Phase 3 implements "
-                f"upload, extract, automate and summary only. See "
-                f"{_DOWNLOAD_PHASE}."),
-    )
+    try:
+        artifact = workflow.download_submission(mdr_id, settings=settings)
+    except workflow.WorkflowError as exc:
+        raise _http(exc) from exc
+    return _EphemeralFileResponse(
+        artifact.path, media_type=artifact.media_type,
+        filename=artifact.filename, cleanup=artifact.cleanup)

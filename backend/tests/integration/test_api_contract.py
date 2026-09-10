@@ -112,20 +112,28 @@ class TestResponses:
         """The multipart contract is real, not decorative."""
         assert client.post("/api/v1/mdr/upload").status_code == 422
 
-    def test_download_reports_not_implemented(self, client):
-        """Download is Delivery Phase 4 and still answers 501. The other
-        workflow endpoints are implemented; `tests/api/` exercises them."""
-        response = client.get(f"/api/v1/mdr/{uuid.uuid4()}/download")
-        assert response.status_code == 501
-        assert "not implemented" in response.json()["detail"].lower()
+    def test_download_is_implemented_and_answers_with_a_workbook(self, client):
+        """Delivery Phase 4: no endpoint answers 501 any more. The download
+        declares an xlsx body, not JSON; its behaviour against a database is
+        `tests/api/test_download_api.py`."""
+        spec = client.get("/openapi.json").json()
+        operation = spec["paths"]["/api/v1/mdr/{mdr_id}/download"]["get"]
+        assert "501" not in operation["responses"]
+        assert ("application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet") in operation["responses"]["200"]["content"]
+        for code in ("404", "409", "500"):
+            assert code in operation["responses"], code
 
-    def test_no_endpoint_fabricates_a_result(self, client):
-        """A 501 body carries an explanation, never processing output."""
-        body = client.get(f"/api/v1/mdr/{uuid.uuid4()}/download").json()
-        assert set(body) == {"detail"}
+    def test_no_route_answers_not_implemented(self, client):
+        """Every documented response of every product route is a real one."""
+        spec = client.get("/openapi.json").json()
+        for path, methods in spec["paths"].items():
+            for operation in methods.values():
+                assert "501" not in operation.get("responses", {}), path
 
     def test_a_malformed_id_is_rejected_before_the_handler(self, client):
         assert client.get("/api/v1/mdr/not-a-uuid/summary").status_code == 422
+        assert client.get("/api/v1/mdr/not-a-uuid/download").status_code == 422
 
 
 class TestOpenApiContract:

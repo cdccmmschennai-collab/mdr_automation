@@ -1,5 +1,8 @@
 """upload -> extract -> automate -> summary over HTTP, on the small fixture.
 
+Delivery Phase 4's download is `test_download_api.py`; the end-to-end test at
+the bottom only confirms it answers.
+
 Every test here goes through the real routes, the real services, the real
 engine and the real PostgreSQL schema; only the workbook is small. What the
 database ends up holding is compared with what `run_automation` produces for
@@ -586,4 +589,9 @@ class TestEndToEnd:
 
         assert hashlib.sha256(
             small_workbook.read_bytes()).hexdigest() == source_before
-        assert client.get(f"/api/v1/mdr/{mdr_id}/download").status_code == 501
+        # Delivery Phase 4: the workbook comes back. Its content is
+        # `test_download_api.py`'s business.
+        dl = client.get(f"/api/v1/mdr/{mdr_id}/download")
+        assert dl.status_code == 200
+        assert dl.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument")

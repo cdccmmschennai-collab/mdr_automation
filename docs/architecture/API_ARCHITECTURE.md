@@ -2,7 +2,8 @@
 
 **Status:** the boundary is established and versioned. `GET /api/health` works;
 `upload`, `extract`, `automate` and `summary` are implemented (Delivery
-Phase 3) and `download` returns `501 Not Implemented` until Delivery Phase 4.
+Phase 3) and `download` is implemented (Delivery Phase 4). Nothing answers
+`501`.
 
 The endpoint-by-endpoint contract lives in **[API_CONTRACT.md](API_CONTRACT.md)**.
 This document is the shape and the rules; that one is the request/response
@@ -46,20 +47,23 @@ frontend  ──HTTP/JSON──▶  FastAPI app        backend/app/main.py
                                       │                api/schemas/mdr.py
                                       ▼
                               workflow_service          services/workflow_service.py
-                               ╱      │       ╲
-                              ▼       ▼        ▼
-                          engine  repositories  storage   infrastructure/persistence
-                             │        │           │       infrastructure/storage
-                             ▼        ▼           ▼
+                               ╱      │       ╲       ╲
+                              ▼       ▼        ▼       ▼
+                          engine  repositories  storage  export_service
+                             │        │           │         │  (Phase 1 writer)
+                             ▼        ▼           ▼         ▼
                           domain  PostgreSQL   <uploads_dir>/<mdr_id>/<file>
+                                                        temporary .xlsx (download)
 ```
 
 `workflow_service` is the one module the routes call. It sequences the steps,
 owns each step's transaction, and delegates everything else: extraction to
 `MdrEngine.run()`, automation to `run_automation()`, rule identification to
-`rule_set_service`, persistence to the repositories and the bytes to the
-storage adapter. It contains no MDR rule, and the routes contain nothing but
-request reading, one service call, error translation and response shaping.
+`rule_set_service`, the downloaded workbook to
+`export_service.export_automated_workbook()`, persistence to the repositories
+and the bytes to the storage adapter. It contains no MDR rule, and the routes
+contain nothing but request reading, one service call, error translation and
+response shaping.
 
 Two prefixes, and the difference is deliberate:
 
@@ -81,7 +85,7 @@ POST /api/v1/mdr/upload                   works — Delivery Phase 3
 POST /api/v1/mdr/{mdr_id}/extract         works — Delivery Phase 3
 POST /api/v1/mdr/{mdr_id}/automate        works — Delivery Phase 3
 GET  /api/v1/mdr/{mdr_id}/summary         works — Delivery Phase 3
-GET  /api/v1/mdr/{mdr_id}/download        501 — Delivery Phase 4
+GET  /api/v1/mdr/{mdr_id}/download        works — Delivery Phase 4
 ```
 
 That is the whole surface;
@@ -95,12 +99,15 @@ alone. They are action endpoints rather than nested resources
 procedural. If extract and automate become long-running background work, the
 job resource that follows will be added then, on evidence.
 
-**The remaining 501 is honest, not a placeholder that pretends.** `download`
-touches nothing and returns nothing fabricated; its eventual behaviour is
-Phase 4's. The four implemented endpoints are synchronous — the engine runs
-inside the request — and each moves the submission exactly one lifecycle step
-or to `FAILED`, never partway. The step-by-step behaviour, the lifecycle, the
-plant and rule-set association and the file storage are in API_CONTRACT.md.
+All five are synchronous — the engine, or the writer, runs inside the request.
+`extract` and `automate` each move the submission exactly one lifecycle step
+or to `FAILED`, never partway. `summary` and `download` are reads: `download`
+rebuilds the `QatarEnergy-TN Automated` sheet from the persisted rows through
+the Phase 1 writer (`export_service.export_automated_workbook`), runs no
+engine, writes no table, and streams a temporary file that is removed once the
+response has been sent. The step-by-step behaviour, the lifecycle, the plant
+and rule-set association, the file storage and the download's integrity checks
+are in API_CONTRACT.md.
 
 ### Removed in Delivery Phase 2
 
