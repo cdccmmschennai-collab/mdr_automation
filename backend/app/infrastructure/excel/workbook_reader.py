@@ -42,6 +42,30 @@ class ColumnNotFoundError(LookupError):
     """Raised when a required column header is absent."""
 
 
+class WorkbookUnreadableError(ValueError):
+    """Raised when the bytes are not an xlsx workbook openpyxl can open.
+
+    Wraps whatever openpyxl or the zip layer raised (a `BadZipFile`, an
+    `InvalidFileException`, a `KeyError` for an archive with no workbook part)
+    so a caller validating an upload has one exception to catch and does not
+    have to know the reader's implementation.
+    """
+
+
+def open_readonly(source):
+    """Open a workbook read-only, or raise `WorkbookUnreadableError`.
+
+    `source` is a path or a binary file-like object. Every reader in this
+    module opens through here so "not a workbook" is reported the same way
+    whichever entry point met it.
+    """
+    try:
+        return load_workbook(source, read_only=True, data_only=True)
+    except Exception as exc:
+        raise WorkbookUnreadableError(
+            f"not a readable .xlsx workbook ({type(exc).__name__})") from exc
+
+
 @dataclass
 class SheetTable:
     """A discovered sheet: its header row, column map and data rows."""
@@ -128,10 +152,29 @@ def detect_header_row(ws, expected: Sequence[str], max_scan: int = 15) -> int:
     return best_row
 
 
+def probe_table(source, sheet_candidates: Sequence[str],
+                expected_headers: Sequence[str]) -> tuple[str, int]:
+    """Locate a sheet and its header row without reading the data rows.
+
+    The cheap half of `read_table`, for validating an upload before it is
+    accepted: it answers "is there a sheet like this, with a header like
+    this?" in milliseconds on a workbook whose full read takes seconds. Raises
+    the same errors `read_table` would - `WorkbookUnreadableError`,
+    `SheetNotFoundError`, `ColumnNotFoundError` - so what passes here is what
+    the reader will later accept.
+    """
+    wb = open_readonly(source)
+    try:
+        name = find_sheet(wb, *sheet_candidates)
+        return name, detect_header_row(wb[name], expected_headers)
+    finally:
+        wb.close()
+
+
 def read_table(path: Path, sheet_candidates: Sequence[str],
                expected_headers: Sequence[str]) -> SheetTable:
     """Load one sheet into a SheetTable. Opens the workbook read-only."""
-    wb = load_workbook(path, read_only=True, data_only=True)
+    wb = open_readonly(path)
     try:
         name = find_sheet(wb, *sheet_candidates)
         ws = wb[name]

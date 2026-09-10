@@ -187,8 +187,9 @@ class MdrSubmission(TimestampMixin, Base):
     source_sha256: Mapped[str] = mapped_column(String(SHA256_LENGTH),
                                                nullable=False)
     source_byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    #: Where the bytes were put. Empty until a storage adapter exists
-    #: (`infrastructure/storage/` is its reserved home, a later phase).
+    #: Where the bytes were put: the storage *key*, `<submission_id>/<filename>`,
+    #: resolved against `settings.uploads_dir` by `infrastructure.storage` -
+    #: never an absolute path, so the data directory can move.
     stored_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     #: What extraction found in the workbook - `MdrEngine.run().discovery`.

@@ -5,6 +5,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added — Delivery Phase 3: upload → extract → automate → summary
+
+The `/api/v1/mdr` workflow now works end to end against PostgreSQL, running
+the existing engine unchanged. `download` remains Delivery Phase 4 (`501`).
+
+- `services/workflow_service.py` — the one module the routes call. One
+  function per step, each owning one transaction: `upload_workbook`,
+  `extract_submission`, `automate_submission`, `summarise_submission`.
+  Extraction is `MdrEngine.run()`; automation is `run_automation()`; the rows
+  stored are the engine's `DocumentRecord`s and `AutomationRow`s, matched by
+  `source_row`, never by position. No MDR rule lives in it.
+- `infrastructure/storage/local.py` — uploaded workbooks under
+  `MDR_UPLOADS_DIR` (default `<data>/uploads`; `/data/uploads` in compose) as
+  `<mdr_id>/<filename>`; the key, not the path, is what `stored_path` holds.
+  Never overwrites; never writes outside its root; four calls (`put`,
+  `resolve`, `exists`, `delete`) so an object store can replace it.
+- Upload validation before anything is stored or recorded: empty, extension,
+  size (`MDR_MAX_UPLOAD_BYTES`, 100 MiB), openable, and a `QatarEnergy-TN`
+  sheet with a recognisable header — via the reader's own discovery
+  (`probe_document_sheet`), so what upload accepts is what extract can read.
+- Lifecycle is the Phase 2 enum unchanged: `UPLOADED → EXTRACTED → AUTOMATED`,
+  `FAILED` from either step with `failure_reason`. Each step is accepted only
+  from the status before it (`409` otherwise), a step's writes are one
+  transaction, and `FAILED` is recorded in a second transaction after the
+  first has rolled back. `FAILED` is terminal: re-upload.
+- Plants are explicit: `upload` takes `plant_id`; an unknown plant is `404`
+  and nothing creates one implicitly. API_CONTRACT.md documents registering
+  the first plant.
+- `automate` fingerprints the rules workbook and finds-or-creates the
+  `rule_sets` row by digest in the same transaction as the summary.
+- `SummaryResponse` gains `plant_code`, `extracted_at`, `failure_reason`
+  (all optional/defaulted); `summary` answers in any status and runs nothing.
+- `DocumentRowRepository.update_automation` / `source_rows_for`;
+  `SubmissionRepository.add` accepts a caller-supplied id.
+- Tests: `tests/api/` (workflow over HTTP on the nine-row fixture, and the
+  real ~22k-row workbook end to end against `run_automation`), storage and
+  settings unit tests. The four Phase 2 "returns 501" assertions for the now
+  implemented endpoints were replaced by their Phase 3 behaviour; every other
+  existing test is unchanged.
+
+### Changed
+
+- `fastapi>=0.110,<0.137`: from 0.137 `include_router` registers a nested
+  `_IncludedRouter` instead of flattening routes into `app.routes`, which the
+  route-introspection tests read.
+- `docker-compose.yml`: project name `mdr-automation`; containers
+  `mdr-automation-{frontend,backend,postgres}`; ports `3200:3000` and
+  `8200:8000`; PostgreSQL internal only; `./data/uploads` mounted writable.
+
 ### Added — Delivery Phase 2: PostgreSQL persistence and the `/api/v1` contract
 
 *Delivery* Phase 2 — the PostgreSQL row in `docs/phases/README.md`. Not the

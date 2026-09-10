@@ -5,7 +5,11 @@ description = "MDR Automation Tool - backend: MDR engine, domain and API"
 requires-python = ">=3.11"
 dependencies = [
     "openpyxl>=3.1",
-    "fastapi>=0.110",
+    # <0.137: from 0.137.0 `include_router` registers a nested
+    # `_IncludedRouter` instead of flattening routes into `app.routes`, which
+    # the route-introspection tests in tests/integration/test_api_contract.py
+    # read. Raise the cap together with those tests.
+    "fastapi>=0.110,<0.137",
     "uvicorn[standard]>=0.27",
     "pydantic>=2.6",
     # Multipart form parsing, for POST /api/v1/mdr/upload.

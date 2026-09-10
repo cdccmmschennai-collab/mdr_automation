@@ -17,8 +17,11 @@ submission, not a database detail. `infrastructure.persistence` stores them as
 text under a CHECK constraint rather than a PostgreSQL ENUM type - see
 `persistence/models.py` for why.
 
-Delivery Phase 2 persists these values; it does not implement the transitions,
-because the upload, extract and automate workflows are later phases.
+Delivery Phase 2 persists these values. Delivery Phase 3 implements the
+transitions in `services.workflow_service`: each step is accepted only from
+the status directly before it, and FAILED is terminal - the workbook is
+re-uploaded as a new submission. Processing is synchronous, so there are no
+in-flight states.
 """
 
 from __future__ import annotations

@@ -247,6 +247,8 @@ credentials, secrets or production paths are in source.
 | `MDR_INPUT_WORKBOOK` | first `.xlsx` in `data/input/current` | Workbook to process |
 | `MDR_LOG_LEVEL` | `INFO` | Root log level |
 | `MDR_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
+| `MDR_UPLOADS_DIR` | `<MDR_DATA_DIR>/uploads` | Where uploaded MDR workbooks are stored, one directory per submission (Delivery Phase 3) |
+| `MDR_MAX_UPLOAD_BYTES` | `104857600` (100 MiB) | Largest upload the API accepts |
 
 ---
 

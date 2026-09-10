@@ -1,14 +1,16 @@
 """The `/api/v1/mdr` contract.
 
 Every field below is a real domain concept that Delivery Phase 2 already
-persists - a column on `mdr_submissions`, `mdr_processing_summaries` or
-`rule_sets`. Nothing is invented to make a response look fuller: a field that
-no table can supply would be a promise the next phase has to either implement
-or break.
+persists - a column on `mdr_submissions`, `mdr_processing_summaries`,
+`rule_sets` or `plants`. Nothing is invented to make a response look fuller: a
+field that no table can supply would be a promise the next phase has to either
+implement or break.
 
-The endpoints these describe return `501 Not Implemented` in Delivery Phase 2.
-The schemas exist anyway, and appear in `/docs`, because the contract is what
-this phase is for; the behaviour is Delivery Phase 3 and 4.
+Delivery Phase 2 fixed these shapes and answered every endpoint with 501.
+Delivery Phase 3 implements upload, extract, automate and summary against
+them; download remains Phase 4. The Phase 3 additions to `SummaryResponse`
+(`plant_code`, `extracted_at`, `failure_reason`) are backward-compatible: new
+fields, all optional or defaulted.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from ...domain.enums.lifecycle import SubmissionStatus
 
 
 class UploadResponse(BaseModel):
-    """What `POST /api/v1/mdr/upload` returns once implemented.
+    """What `POST /api/v1/mdr/upload` returns.
 
     `mdr_id` is the identifier every later call in the workflow uses.
     `submission_no` is the same submission as the business names it - `MDR #6`
@@ -43,7 +45,7 @@ class UploadResponse(BaseModel):
 
 
 class ExtractResponse(BaseModel):
-    """What `POST /api/v1/mdr/{mdr_id}/extract` returns once implemented.
+    """What `POST /api/v1/mdr/{mdr_id}/extract` returns.
 
     The three `sheet`/`header_row`/`row_count` values are what the workbook
     turned out to contain - `MdrEngine.run().discovery`, persisted onto the
@@ -73,7 +75,7 @@ class RuleSetRef(BaseModel):
 
 
 class AutomateResponse(BaseModel):
-    """What `POST /api/v1/mdr/{mdr_id}/automate` returns once implemented."""
+    """What `POST /api/v1/mdr/{mdr_id}/automate` returns."""
 
     mdr_id: uuid.UUID
     status: SubmissionStatus = Field(description="AUTOMATED on success.")
@@ -83,7 +85,12 @@ class AutomateResponse(BaseModel):
 
 
 class SummaryResponse(BaseModel):
-    """What `GET /api/v1/mdr/{mdr_id}/summary` returns once implemented.
+    """What `GET /api/v1/mdr/{mdr_id}/summary` returns.
+
+    Available for a submission in any status. Before AUTOMATED the counters
+    are zero, `rule_set` is null and `counts` is empty - the summary of a
+    submission that has not been automated is its status and timestamps; for a
+    FAILED one, `failure_reason` says where it stopped.
 
     The counters are `mdr_processing_summaries` columns, which are in turn
     `AutomationRun.summary()` - the numbers the CLI already prints.
@@ -96,9 +103,13 @@ class SummaryResponse(BaseModel):
     mdr_id: uuid.UUID
     submission_no: int
     plant_id: uuid.UUID
+    plant_code: str = Field(default="", description="The plant's business key.")
     status: SubmissionStatus
+    failure_reason: str = Field(
+        default="", description="Why processing stopped. Empty unless FAILED.")
     source_filename: str
     uploaded_at: _dt.datetime
+    extracted_at: Optional[_dt.datetime] = None
     automated_at: Optional[_dt.datetime] = None
 
     rule_set: Optional[RuleSetRef] = None

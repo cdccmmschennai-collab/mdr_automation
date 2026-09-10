@@ -46,6 +46,9 @@ data/reference/
 data/received/
 data/output/
 data/rules/
+# Uploaded MDR workbooks (Delivery Phase 3) are client data too. `/*` rather
+# than `/` so the `.gitkeep` re-include below can reach the directory skeleton.
+data/uploads/*
 
 # The same data, wherever a run puts it. `--outdir` takes any path, so a run
 # from the repository root writes engine artefacts to ./output/ and the

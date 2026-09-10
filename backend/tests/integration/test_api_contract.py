@@ -98,31 +98,30 @@ class TestResponses:
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
-    def test_upload_reports_not_implemented(self, client):
+    def test_upload_rejects_bytes_that_are_not_a_workbook(self, client):
+        """Delivery Phase 3: the bytes are validated before anything is
+        stored or recorded, so this needs no database and creates nothing."""
         response = client.post(
             "/api/v1/mdr/upload",
             data={"plant_id": str(uuid.uuid4())},
             files={"mdr_file": ("log.xlsx", b"not a real workbook")})
-        assert response.status_code == 501
-        assert "not implemented" in response.json()["detail"].lower()
+        assert response.status_code == 400
+        assert "workbook" in response.json()["detail"].lower()
 
     def test_upload_still_validates_its_request(self, client):
         """The multipart contract is real, not decorative."""
         assert client.post("/api/v1/mdr/upload").status_code == 422
 
-    @pytest.mark.parametrize("method,suffix", [
-        ("post", "extract"), ("post", "automate"),
-        ("get", "summary"), ("get", "download"),
-    ])
-    def test_the_workflow_endpoints_report_not_implemented(self, client, method,
-                                                           suffix):
-        response = getattr(client, method)(
-            f"/api/v1/mdr/{uuid.uuid4()}/{suffix}")
+    def test_download_reports_not_implemented(self, client):
+        """Download is Delivery Phase 4 and still answers 501. The other
+        workflow endpoints are implemented; `tests/api/` exercises them."""
+        response = client.get(f"/api/v1/mdr/{uuid.uuid4()}/download")
         assert response.status_code == 501
+        assert "not implemented" in response.json()["detail"].lower()
 
     def test_no_endpoint_fabricates_a_result(self, client):
         """A 501 body carries an explanation, never processing output."""
-        body = client.get(f"/api/v1/mdr/{uuid.uuid4()}/summary").json()
+        body = client.get(f"/api/v1/mdr/{uuid.uuid4()}/download").json()
         assert set(body) == {"detail"}
 
     def test_a_malformed_id_is_rejected_before_the_handler(self, client):

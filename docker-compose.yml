@@ -68,6 +68,10 @@ services:
       - ./data/rules:/data/rules:ro
       - ./data/received:/data/received:ro
       - ./data/output:/data/output
+      # Uploaded MDR workbooks (Delivery Phase 3), one directory per
+      # submission. Writable: it is where the API puts what it receives. Kept
+      # apart from input/, which stays read-only.
+      - ./data/uploads:/data/uploads
     ports:
       - "8200:8000"
 

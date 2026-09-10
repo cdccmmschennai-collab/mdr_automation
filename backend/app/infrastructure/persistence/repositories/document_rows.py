@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select
 from sqlalchemy.orm import Session
 
 from ....domain.models.automation import AutomationRow
@@ -88,7 +88,71 @@ class DocumentRowRepository:
             "idb_source": row.idb_source if row else "",
         }
 
+    def update_automation(self, submission_id: uuid.UUID,
+                          automation_rows: Iterable[AutomationRow]) -> int:
+        """Write the automation verdicts onto rows that already exist.
+
+        The Delivery Phase 3 workflow extracts first and automates later, so
+        the rows are inserted by `add_rows` with their four automation columns
+        empty and filled in here. Each row is addressed by
+        `(submission_id, source_row)` - the unique key - never by position.
+        Returns the number of rows updated; the caller compares it with what
+        it expected, because an automation row with no stored counterpart is
+        a defect and not something to skip quietly.
+
+        `check_status` is deliberately not in the SET list. It stays at the
+        empty string the insert wrote, and the CHECK constraint would refuse
+        anything else.
+        """
+        payload = [{
+            "b_submission_id": submission_id,
+            "b_source_row": row.source_row,
+            "b_doc_with_rev": row.doc_with_rev,
+            "b_doc_type": row.doc_type,
+            "b_sow": row.sow,
+            "b_idb_completed_status": row.idb_status,
+            "b_doc_type_rule": row.doc_type_rule,
+            "b_sow_source": row.sow_source,
+            "b_idb_source": row.idb_source,
+        } for row in automation_rows]
+        if not payload:
+            return 0
+
+        table = MdrDocumentRow.__table__
+        statement = (
+            table.update()
+            .where(table.c.submission_id == bindparam("b_submission_id"),
+                   table.c.source_row == bindparam("b_source_row"))
+            .values(doc_with_rev=bindparam("b_doc_with_rev"),
+                    doc_type=bindparam("b_doc_type"),
+                    sow=bindparam("b_sow"),
+                    idb_completed_status=bindparam("b_idb_completed_status"),
+                    doc_type_rule=bindparam("b_doc_type_rule"),
+                    sow_source=bindparam("b_sow_source"),
+                    idb_source=bindparam("b_idb_source"))
+        )
+        updated = 0
+        for start in range(0, len(payload), INSERT_CHUNK):
+            result = self.session.execute(statement,
+                                          payload[start:start + INSERT_CHUNK])
+            updated += result.rowcount
+        self.session.flush()
+        return updated
+
     # ----------------------------------------------------------------- reads
+
+    def source_rows_for(self, submission_id: uuid.UUID) -> set[int]:
+        """Every `source_row` stored for one submission.
+
+        What the automate workflow checks its engine output against before
+        writing: the rows the engine produced from the workbook must be the
+        rows extraction stored from it, or the two runs did not see the same
+        file.
+        """
+        return set(self.session.execute(
+            select(MdrDocumentRow.source_row)
+            .where(MdrDocumentRow.submission_id == submission_id)
+        ).scalars())
 
     def count_for(self, submission_id: uuid.UUID) -> int:
         return self.session.execute(

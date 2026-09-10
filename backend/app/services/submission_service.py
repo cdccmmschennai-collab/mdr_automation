@@ -9,8 +9,9 @@ should:
 
 **What this module does not do.** It does not upload anything, read an
 uploaded file off a request, run the engine on the API's behalf, or generate a
-download. Those are the upload/extract/automate/download workflows, and they
-belong to later delivery phases. What is here is the persistence half: given an
+download. The HTTP workflow - upload, extract, automate, summary - is
+`workflow_service` (Delivery Phase 3), which reuses `register_plant` and
+`register_rule_set` from here. What is here is the persistence half: given an
 `AutomationRun` that the existing engine already produced, store it in a way
 that is still explainable a year later.
 

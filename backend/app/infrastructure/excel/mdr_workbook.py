@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .workbook_reader import SheetTable, read_table
+from .workbook_reader import SheetTable, probe_table, read_table
 
 # --------------------------------------------------------------- sheet naming
 
@@ -157,6 +157,18 @@ class MdrWorkbookReader:
             for i, row in enumerate(table.rows)
         ]
         return rows, _discovery(table)
+
+
+def probe_document_sheet(source) -> tuple[str, int]:
+    """Confirm `source` has a QatarEnergy-TN sheet and return its name and
+    header row. `source` is a path or a binary file-like object.
+
+    This is the upload-time check: the same sheet names and header captions
+    `read_document_rows` uses, so a workbook accepted here is one the reader
+    can open, and one it cannot is refused before a submission exists. Raises
+    `WorkbookUnreadableError`, `SheetNotFoundError` or `ColumnNotFoundError`.
+    """
+    return probe_table(source, QE_SHEET, QE_EXPECTED)
 
 
 def _discovery(table: SheetTable) -> SheetDiscovery:

@@ -1,8 +1,8 @@
 # API Architecture
 
 **Status:** the boundary is established and versioned. `GET /api/health` works;
-the five `/api/v1/mdr` product endpoints are registered with their full
-contracts and return `501 Not Implemented` until Delivery Phase 3 and 4.
+`upload`, `extract`, `automate` and `summary` are implemented (Delivery
+Phase 3) and `download` returns `501 Not Implemented` until Delivery Phase 4.
 
 The endpoint-by-endpoint contract lives in **[API_CONTRACT.md](API_CONTRACT.md)**.
 This document is the shape and the rules; that one is the request/response
@@ -45,14 +45,21 @@ frontend  ──HTTP/JSON──▶  FastAPI app        backend/app/main.py
                               └── /api/v1/mdr/*        api/routes/mdr_v1.py
                                       │                api/schemas/mdr.py
                                       ▼
-                                  services              services/*.py
-                                   ╱      ╲
-                                  ▼        ▼
-                              engine    repositories   infrastructure/persistence
-                                 │           │
-                                 ▼           ▼
-                              domain     PostgreSQL
+                              workflow_service          services/workflow_service.py
+                               ╱      │       ╲
+                              ▼       ▼        ▼
+                          engine  repositories  storage   infrastructure/persistence
+                             │        │           │       infrastructure/storage
+                             ▼        ▼           ▼
+                          domain  PostgreSQL   <uploads_dir>/<mdr_id>/<file>
 ```
+
+`workflow_service` is the one module the routes call. It sequences the steps,
+owns each step's transaction, and delegates everything else: extraction to
+`MdrEngine.run()`, automation to `run_automation()`, rule identification to
+`rule_set_service`, persistence to the repositories and the bytes to the
+storage adapter. It contains no MDR rule, and the routes contain nothing but
+request reading, one service call, error translation and response shaping.
 
 Two prefixes, and the difference is deliberate:
 
@@ -70,10 +77,10 @@ Vite dev server).
 
 ```
 GET  /api/health                          works
-POST /api/v1/mdr/upload                   501 — Delivery Phase 3
-POST /api/v1/mdr/{mdr_id}/extract         501 — Delivery Phase 3
-POST /api/v1/mdr/{mdr_id}/automate        501 — Delivery Phase 3
-GET  /api/v1/mdr/{mdr_id}/summary         501 — Delivery Phase 3
+POST /api/v1/mdr/upload                   works — Delivery Phase 3
+POST /api/v1/mdr/{mdr_id}/extract         works — Delivery Phase 3
+POST /api/v1/mdr/{mdr_id}/automate        works — Delivery Phase 3
+GET  /api/v1/mdr/{mdr_id}/summary         works — Delivery Phase 3
 GET  /api/v1/mdr/{mdr_id}/download        501 — Delivery Phase 4
 ```
 
@@ -88,10 +95,12 @@ alone. They are action endpoints rather than nested resources
 procedural. If extract and automate become long-running background work, the
 job resource that follows will be added then, on evidence.
 
-**The 501s are honest, not placeholders that pretend.** No handler touches the
-database, runs the engine, or returns a fabricated result. Their response
-schemas are declared and appear in `/docs`, so the contract is fixed now; the
-behaviour is not claimed.
+**The remaining 501 is honest, not a placeholder that pretends.** `download`
+touches nothing and returns nothing fabricated; its eventual behaviour is
+Phase 4's. The four implemented endpoints are synchronous — the engine runs
+inside the request — and each moves the submission exactly one lifecycle step
+or to `FAILED`, never partway. The step-by-step behaviour, the lifecycle, the
+plant and rule-set association and the file storage are in API_CONTRACT.md.
 
 ### Removed in Delivery Phase 2
 
@@ -134,16 +143,19 @@ accident:
 2. **Result size.** A submission holds ~22k rows. Any future endpoint returning
    them must paginate; `DocumentRowRepository.for_submission` already takes
    `limit`/`offset` so the eventual endpoint has no excuse not to.
-3. **Uploads.** Where an uploaded workbook is stored, and how it is validated
-   before the engine touches it, is unresolved. `infrastructure/storage/` is
-   the reserved home, and `mdr_submissions.stored_path` is the column waiting
-   for the answer.
+3. ~~**Uploads.**~~ **Resolved in Delivery Phase 3** — local filesystem under
+   `MDR_UPLOADS_DIR` (`infrastructure/storage/local.py`), keyed
+   `<mdr_id>/<filename>` in `mdr_submissions.stored_path`; validated by the
+   reader's own sheet/header discovery before a submission exists. Object
+   storage would be a second adapter with the same four calls.
 4. ~~**Versioning.**~~ **Resolved in Delivery Phase 2** — see §4. The product
    API is `/api/v1`; health stays unversioned.
 5. **Re-running a submission.** `mdr_processing_summaries` is unique on
    `submission_id`, so a submission has one run. Re-running under a new rule
    set means dropping that one constraint; the table is already shaped as the
    run history that would become. Not decided, because nothing needs it yet.
+   Delivery Phase 3 keeps to it: a repeated `extract` or `automate` is a
+   `409`, and a `FAILED` submission is re-uploaded rather than retried.
 
 ---
 

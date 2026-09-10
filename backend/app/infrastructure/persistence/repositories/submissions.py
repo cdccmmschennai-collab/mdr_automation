@@ -46,13 +46,20 @@ class SubmissionRepository:
     def add(self, *, plant_id: uuid.UUID, source_filename: str,
             source_sha256: str, source_byte_size: int,
             submission_no: Optional[int] = None, stored_path: str = "",
+            submission_id: Optional[uuid.UUID] = None,
             ) -> MdrSubmission:
         """Record an uploaded workbook.
 
         The status is always `UPLOADED`: a submission cannot be created already
         claiming that work was done to it.
+
+        `submission_id` may be supplied when the caller has already used it -
+        the upload workflow stores the workbook under the id before the row
+        exists, so the row can be created pointing at a file that is already
+        there rather than the other way round. Omitted, one is generated.
         """
         submission = MdrSubmission(
+            id=submission_id if submission_id is not None else uuid.uuid4(),
             plant_id=plant_id,
             submission_no=(submission_no if submission_no is not None
                            else self.next_submission_no(plant_id)),

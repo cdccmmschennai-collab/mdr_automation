@@ -21,6 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 ENV_PREFIX = "MDR_"
 
+#: Development upload ceiling - see `Settings.max_upload_bytes`.
+DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
 
 class DatabaseNotConfigured(RuntimeError):
     """Raised when persistence is used without a database URL configured."""
@@ -29,6 +32,19 @@ class DatabaseNotConfigured(RuntimeError):
 def _env_path(name: str) -> Optional[Path]:
     value = os.environ.get(ENV_PREFIX + name, "").strip()
     return Path(value).expanduser() if value else None
+
+
+def _env_int(name: str, default: int) -> int:
+    """An integer setting, or `default` when unset. A non-integer is a
+    configuration error and is reported as one rather than silently ignored."""
+    value = os.environ.get(ENV_PREFIX + name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{ENV_PREFIX}{name} must be an integer, "
+                         f"got {value!r}") from exc
 
 
 def _database_url() -> Optional[str]:
@@ -61,6 +77,18 @@ class Settings:
     #: None when unset - see `_database_url`. Nothing outside
     #: `infrastructure.persistence` reads it.
     database_url: Optional[str] = None
+
+    #: Where uploaded MDR workbooks are kept (Delivery Phase 3). None means
+    #: `<data_dir>/uploads`; `MDR_UPLOADS_DIR` overrides it. This is the one
+    #: data location the API writes to on upload, and it is deliberately
+    #: separate from `input/` - the source workbooks there stay read-only.
+    uploads_dir_override: Optional[Path] = None
+
+    #: The largest upload the API accepts, in bytes. `MDR_MAX_UPLOAD_BYTES`
+    #: overrides it. The real MDR workbook is ~12 MB; the default leaves room
+    #: for it to grow several-fold while still refusing a runaway upload
+    #: before it is read into memory.
+    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
 
     #: Whether TN FROM VENDORS rows are merged into the QatarEnergy-TN
     #: processing universe. Off for this plant: the current business rule is
@@ -111,6 +139,11 @@ class Settings:
     @property
     def fixtures_dir(self) -> Path:
         return self.data_dir / "fixtures"
+
+    @property
+    def uploads_dir(self) -> Path:
+        """Uploaded MDR workbooks, one directory per submission (Phase 3)."""
+        return self.uploads_dir_override or (self.data_dir / "uploads")
 
     # -- workbook selection ------------------------------------------------
 
@@ -186,6 +219,8 @@ def load_settings() -> Settings:
             ).split(",") if o.strip()
         ),
         database_url=_database_url(),
+        uploads_dir_override=_env_path("UPLOADS_DIR"),
+        max_upload_bytes=_env_int("MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES),
     )
 
 

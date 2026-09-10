@@ -101,11 +101,17 @@ cd backend
 uvicorn app.main:app --reload      # http://127.0.0.1:8000/docs
 ```
 
-`GET /api/health` works. The five `/api/v1/mdr` product endpoints (upload,
-extract, automate, summary, download) are registered with their full contracts
-and return `501 Not Implemented` until Delivery Phase 3 — see
-[API_CONTRACT.md](docs/architecture/API_CONTRACT.md). **Unauthenticated — local
-use only.**
+`GET /api/health` works. The `/api/v1/mdr` workflow — `upload` → `extract` →
+`automate` → `summary` — is implemented (Delivery Phase 3) and runs the
+existing engine synchronously against PostgreSQL; `download` returns
+`501 Not Implemented` until Delivery Phase 4. Uploads need a database, a
+registered plant and a writable `MDR_UPLOADS_DIR` (default `data/uploads/`) —
+see [API_CONTRACT.md](docs/architecture/API_CONTRACT.md). **Unauthenticated —
+local use only.**
+
+In the Docker stack (`docker compose up --build`): frontend
+`http://localhost:3200`, backend `http://localhost:8200`, PostgreSQL internal
+only at `postgres:5432`.
 
 ### Database
 

@@ -2,7 +2,7 @@
 # this file exists for `pip install -r`.
 
 openpyxl>=3.1
-fastapi>=0.110
+fastapi>=0.110,<0.137   # see pyproject.toml
 uvicorn[standard]>=0.27
 pydantic>=2.6
 python-multipart>=0.0.9
