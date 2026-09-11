@@ -35,6 +35,10 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# ------------------------------------------------------- Design reference
+# Local-only source-of-truth mockups/notes, not part of the shipped app.
+/design-reference/
+
 # =====================================================================
 # PRODUCTION DATA — never committed.
 #

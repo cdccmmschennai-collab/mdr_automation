@@ -1,0 +1,52 @@
+/**
+ * Design tokens — single source of truth for every color, radius, shadow and
+ * spacing value used across the app.
+ *
+ * Values are copied verbatim from the approved design's `COLORS` object and
+ * inline styles (`Codebase and demo questions/Auto MDR.dc.html`). Do not
+ * hand-roll a color in a component — add or reuse a token here instead, so
+ * the design cannot drift between components.
+ */
+
+:root {
+  /* Colors — names match the design's own COLORS object */
+  --color-primary: #1b5f95;
+  --color-primary-dark: #124e7e;
+  --color-primary-text: #173f67;
+  --color-background: #fff9e7;
+  --color-surface: #ffffff;
+  --color-surface-soft: #fff4c7;
+  --color-border: #dedede;
+  --color-text: #4b5560;
+  --color-text-muted: #6f7880;
+  --color-accent: #f2c94c;
+  --color-accent-soft: #f7db7b;
+  --color-success: #2ead63;
+  --color-warning: #b9860a;
+  --color-error: #b23b27;
+  --color-error-soft-bg: #fbeae5;
+  --color-error-soft-border: #efc9c0;
+  --color-error-soft-text: #8a3226;
+
+  /* Radii */
+  --radius-sm: 7px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-card: 0 14px 34px rgba(96, 76, 24, 0.08);
+
+  /* Typography */
+  --font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Page background gradient — same five stops as the design's hero panel */
+  --gradient-page: linear-gradient(
+    180deg,
+    var(--color-accent) 0%,
+    var(--color-accent-soft) 17%,
+    var(--color-surface-soft) 43%,
+    var(--color-background) 68%,
+    var(--color-surface) 100%
+  );
+}

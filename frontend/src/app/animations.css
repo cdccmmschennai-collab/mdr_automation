@@ -1,0 +1,66 @@
+/**
+ * Shared keyframes from the approved design
+ * (`Codebase and demo questions/Auto MDR.dc.html`).
+ *
+ * `spin` and `badge-pulse` are used by later phases (the processing loader,
+ * the "ready" badge pulse on the illustration); `workbook-float` is used by
+ * the upload-card illustration built in Phase 1. All three are defined here
+ * together so the design's animation vocabulary has one home.
+ */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes workbook-float {
+  0%,
+  100% {
+    transform: translateY(4px) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(0.5deg);
+  }
+}
+
+@keyframes badge-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+.workbook-illo {
+  animation: workbook-float 5.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.badge-pulse-ring {
+  animation: badge-pulse 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  transform-origin: 182px 196px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

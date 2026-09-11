@@ -1,0 +1,208 @@
+.amdr-upload-card {
+  width: 936px;
+  max-width: 100%;
+  box-sizing: border-box;
+  /* Fixed, not min-height: the ready and selected states share this exact
+     outer geometry so switching between them never moves or resizes the
+     card — only the content inside changes. */
+  height: 450px;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 48px 64px;
+  cursor: pointer;
+}
+
+.amdr-upload-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 48px;
+  align-items: flex-start;
+}
+
+.amdr-upload-card__content {
+  flex: 1 1 320px;
+  min-width: 280px;
+}
+
+.amdr-upload-card__eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 14px;
+}
+
+.amdr-upload-card__heading {
+  font-weight: 700;
+  font-size: 32px;
+  color: var(--color-primary-text);
+  margin: 0 0 14px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.amdr-upload-card__lede {
+  font-size: 15px;
+  color: var(--color-text);
+  margin: 0 0 28px;
+  line-height: 1.6;
+  max-width: 380px;
+}
+
+.amdr-upload-card__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 19px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: #ffffff;
+  background: var(--color-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 200ms,
+    background 200ms;
+}
+
+.amdr-upload-card__button:hover {
+  background: var(--color-primary-dark);
+  transform: translateY(-1px);
+}
+
+.amdr-upload-card__file-input {
+  display: none;
+}
+
+.amdr-upload-card__hint {
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.amdr-upload-card__formats {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.amdr-upload-card__format {
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+.amdr-upload-card__illustration {
+  flex: 0 1 280px;
+  min-width: 220px;
+  display: flex;
+  justify-content: center;
+}
+
+.amdr-upload-card__content--dragging {
+  padding: 8px;
+  border-radius: var(--radius-md);
+  box-shadow:
+    inset 0 0 0 2px var(--color-primary),
+    inset 0 0 24px rgba(247, 219, 123, 0.5);
+  transition: box-shadow 200ms ease;
+}
+
+.amdr-upload-card__selected {
+  flex: 1 1 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  text-align: center;
+  /* Card height (350px) minus its vertical padding (48px * 2) — the exact
+     content area the ready state's row also has to fit inside, so this
+     state fills and centers within the same fixed banner instead of
+     changing its height. */
+  min-height: 254px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.amdr-upload-card__heading--selected {
+  font-size: 30px;
+  margin: 0 0 18px;
+  line-height: 1.2;
+}
+
+.amdr-upload-card__file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.amdr-upload-card__file-icon,
+.amdr-upload-card__file-check {
+  flex-shrink: 0;
+}
+
+.amdr-upload-card__file-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.amdr-upload-card__file-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-primary-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.amdr-upload-card__file-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.amdr-upload-card__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+}
+
+.amdr-upload-card__secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.amdr-upload-card__secondary-button:hover {
+  color: var(--color-primary-text);
+}
+
+.amdr-upload-card__security-note {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.amdr-upload-card__security-note p {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin: 0;
+}

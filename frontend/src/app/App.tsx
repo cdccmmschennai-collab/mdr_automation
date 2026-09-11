@@ -5,8 +5,8 @@
  * so there is no router yet.
  */
 
-import { StatusPage } from '../pages/StatusPage';
+import { AutomatePage } from '../pages/AutomatePage';
 
 export function App() {
-  return <StatusPage />;
+  return <AutomatePage />;
 }

@@ -1,0 +1,20 @@
+.amdr-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+}
+
+.amdr-page__hero {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background-image: var(--gradient-page);
+}
+
+.amdr-page__hero-inner {
+  width: 100%;
+  max-width: 1220px;
+}

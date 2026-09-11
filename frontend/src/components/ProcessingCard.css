@@ -1,0 +1,104 @@
+.amdr-processing-card {
+  width: min(600px, 100%);
+  box-sizing: border-box;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 56px 48px;
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.amdr-processing-card__heading {
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--color-primary-text);
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.amdr-processing-card__subtext {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  margin: 0 0 28px;
+  text-align: center;
+}
+
+.amdr-processing-card__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 360px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.amdr-processing-card__step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 4px;
+}
+
+.amdr-processing-card__step-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.amdr-processing-card__step-icon--done {
+  background: var(--color-primary-text);
+}
+
+.amdr-processing-card__step-icon--active {
+  background: var(--color-surface-soft);
+}
+
+.amdr-processing-card__step-icon--pending {
+  border: 2px solid var(--color-border);
+}
+
+.amdr-processing-card__step-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.amdr-processing-card__step-label--reached {
+  color: var(--color-primary-text);
+}
+
+.amdr-processing-card__step-label--current {
+  font-weight: 700;
+}
+
+.amdr-processing-card__note {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--color-background);
+  border: 1px solid var(--color-accent-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+.amdr-processing-card__note p {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
