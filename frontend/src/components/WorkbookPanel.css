@@ -1,0 +1,169 @@
+/* A centered column inside the frame — horizontally, and vertically in the
+   frame's height — capped so the row and the actions read as one column
+   rather than stretching across the full 1200px frame. */
+.amdr-workbook {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.amdr-workbook__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin-bottom: 10px;
+}
+
+.amdr-workbook__body {
+  width: 100%;
+}
+
+/* The workbook row — the identity of the current job. Same in every state. */
+.amdr-workbook__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  text-align: left;
+}
+
+.amdr-workbook__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.amdr-workbook__info {
+  min-width: 0;
+  flex: 1;
+}
+
+.amdr-workbook__name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-primary-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.amdr-workbook__meta {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.amdr-workbook__check {
+  display: flex;
+  flex-shrink: 0;
+}
+
+/* The state-dependent region beneath the row. It follows the workbook row
+   directly so action, rail and result all start from the same line; the
+   room left beneath is the frame's breathing space, not something to fill. */
+.amdr-workbook__body {
+  padding-top: 36px;
+}
+
+/* Selected: the primary action row. Run Automation is the one dominant
+   control on the page; Change workbook is a text action beside it. */
+.amdr-workbook__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.amdr-workbook__run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 320px;
+  padding: 16px 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform 200ms,
+    background 200ms;
+}
+
+.amdr-workbook__run:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+  transform: translateY(-1px);
+}
+
+.amdr-workbook__run:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.amdr-workbook__run:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.amdr-workbook__change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.amdr-workbook__change:hover {
+  color: var(--color-primary-text);
+}
+
+.amdr-workbook__change:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.amdr-workbook__blocked {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-error-soft-text);
+}
+
+@media (max-width: 900px) {
+  .amdr-workbook__run {
+    min-width: 0;
+    width: 100%;
+  }
+}

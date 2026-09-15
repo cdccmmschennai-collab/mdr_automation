@@ -5,16 +5,65 @@
   background: var(--color-surface);
 }
 
+/* Content is anchored toward the top of the viewport, not centered in it:
+   header, a modest gap, then the workspace. The remaining height below is
+   breathing room, not something to fill. */
 .amdr-page__hero {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
+  justify-content: flex-start;
+  padding: 40px var(--layout-gutter) 48px;
   background-image: var(--gradient-page);
 }
 
+/* Shares the header's centering axis — the banner below is the narrower of
+   the two page widths, so header and banner read as one grid. */
 .amdr-page__hero-inner {
   width: 100%;
-  max-width: 1220px;
+  max-width: var(--banner-max-width);
+  margin: 0 auto;
+}
+
+/* The one workspace. Every state — ready, selected, processing, complete,
+   failed — renders inside this same box with the same geometry, so a state
+   change is content changing inside a stable frame, never a different card.
+   Every state is sized to fit the banner height, so the frame stays put
+   through the whole run; min-height (not height) only so that a long error
+   message or the expanded result summary can never be clipped. */
+.amdr-workspace {
+  position: relative;
+  width: 100%;
+  min-height: var(--banner-height);
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--banner-padding-y) var(--banner-padding-x);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 200ms;
+}
+
+/* Before a workbook is chosen the whole frame is the drop target, so it
+   keeps the dashed outline of the approved upload design. */
+.amdr-workspace--dropzone {
+  border-style: dashed;
+}
+
+/* Narrower laptops: the same frame, a little less inset so the workbook row
+   and the action row keep their room. `UploadCard.css` mirrors these values
+   for its edge-to-edge drop target. */
+@media (max-width: 1200px) {
+  .amdr-workspace {
+    padding: 40px 48px;
+  }
+}
+
+@media (max-width: 900px) {
+  .amdr-workspace {
+    padding: 32px 28px;
+  }
 }

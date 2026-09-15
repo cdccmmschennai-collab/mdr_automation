@@ -1,18 +1,11 @@
 /**
  * App header — reproduces the approved design's header exactly:
  * logo + brand, centered nav with an active "Automate" pill, and the
- * plant/avatar block on the right.
- *
- * Static for now: there is one nav destination and one plant. Nothing here
- * calls the backend — see `services/mdrService.ts` in a later phase for the
- * real plant list.
+ * avatar on the right. Static: nothing here calls the backend.
  */
 
 import './Header.css';
 
-/** The plant every submission is uploaded against until there is a plant
- * selector. Matched by code against `GET /api/v1/plants` when uploading. */
-export const PLANT_CODE = 'QATARENERGY-TN';
 const AVATAR_INITIALS = 'AM';
 
 export function Header() {
@@ -38,11 +31,9 @@ export function Header() {
         </nav>
 
         <div className="amdr-header__meta">
-          <div className="amdr-header__plant">
-            <div className="amdr-header__plant-label">PLANT</div>
-            <div className="amdr-header__plant-value">{PLANT_CODE}</div>
+          <div className="amdr-header__avatar" aria-label="Signed in as AM" title="AM">
+            {AVATAR_INITIALS}
           </div>
-          <div className="amdr-header__avatar">{AVATAR_INITIALS}</div>
         </div>
       </div>
     </header>

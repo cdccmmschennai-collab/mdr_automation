@@ -8,25 +8,31 @@
  * feeds the complete screen runs exactly once, right after automate
  * succeeds — never on a render or a poll — and its failure never demotes a
  * successful automation back to the failed screen.
+ *
+ * Every state renders inside one `.amdr-workspace` frame: the upload content
+ * before a workbook is chosen, the `WorkbookPanel` from then on. The plant
+ * the submission belongs to is the first one `GET /api/v1/plants` returns
+ * (there is one registered plant; a selector can be added when there are
+ * more) — nothing about it is hard-coded on the client.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { AutomationErrorCard } from '../components/AutomationErrorCard';
-import { Header, PLANT_CODE } from '../components/Header';
-import { ProcessingCard, type ProcessingStage } from '../components/ProcessingCard';
-import { ResultCard } from '../components/ResultCard';
-import { UploadCard, type UploadCardScreen } from '../components/UploadCard';
+import { Header } from '../components/Header';
+import { type ProcessingStage } from '../components/ProcessRail';
+import { UploadCard } from '../components/UploadCard';
 import { UploadErrorCard } from '../components/UploadErrorCard';
+import { WorkbookPanel, type WorkbookPanelState } from '../components/WorkbookPanel';
 import { automateSubmission, extractSubmission, getSummary, uploadWorkbook } from '../services/mdrService';
 import { listPlants } from '../services/plantService';
-import type { SummaryResponse } from '../types/api';
+import type { PlantResponse, SummaryResponse } from '../types/api';
 import './AutomatePage.css';
 
 const SUPPORTED_EXTENSIONS = ['.xlsx', '.xlsm'];
 
 type UploadScreen =
-  | UploadCardScreen
+  | { kind: 'ready' }
+  | { kind: 'selected'; file: File }
   | { kind: 'invalid'; fileName: string; message: string }
   | { kind: 'processing'; file: File; stage: ProcessingStage; done: boolean; mdrId?: string }
   | { kind: 'complete'; file: File; mdrId: string; summary?: SummaryResponse; summaryError?: string }
@@ -41,8 +47,49 @@ function isSupportedWorkbook(file: File): boolean {
   return SUPPORTED_EXTENSIONS.some((extension) => name.endsWith(extension));
 }
 
+/** The workbook panel's file and state for every screen that has a chosen
+ * workbook; null for the ready and invalid screens, which have none. */
+function workbookPanelFor(screen: UploadScreen): { file: File; state: WorkbookPanelState } | null {
+  switch (screen.kind) {
+    case 'selected':
+      return { file: screen.file, state: { kind: 'selected' } };
+    case 'processing':
+      return { file: screen.file, state: { kind: 'processing', stage: screen.stage, done: screen.done } };
+    case 'complete':
+      return {
+        file: screen.file,
+        state: { kind: 'complete', mdrId: screen.mdrId, summary: screen.summary, summaryError: screen.summaryError },
+      };
+    case 'failed':
+      return { file: screen.file, state: { kind: 'failed', message: screen.message } };
+    default:
+      return null;
+  }
+}
+
 export function AutomatePage() {
   const [screen, setScreen] = useState<UploadScreen>({ kind: 'ready' });
+
+  // The registered plant list, loaded once. `null` until it has loaded;
+  // an empty list means nothing is registered.
+  const [plants, setPlants] = useState<PlantResponse[] | null>(null);
+  const [plantsError, setPlantsError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void listPlants()
+      .then((list) => {
+        if (!cancelled) setPlants(list);
+      })
+      .catch((cause) => {
+        if (!cancelled) setPlantsError(cause instanceof Error ? cause.message : 'The plant list could not be loaded.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedPlant = plants?.[0];
 
   const handleFileSelected = useCallback((file: File) => {
     if (!isSupportedWorkbook(file)) {
@@ -54,16 +101,11 @@ export function AutomatePage() {
 
   const handleChangeWorkbook = useCallback(() => setScreen({ kind: 'ready' }), []);
 
-  const runAutomation = useCallback(async (file: File) => {
+  const runAutomation = useCallback(async (file: File, plant: PlantResponse | undefined) => {
     setScreen({ kind: 'processing', file, stage: 'uploading', done: false });
     try {
-      const plants = await listPlants();
-      const target = PLANT_CODE.toLowerCase();
-      const plant = plants.find(
-        (candidate) => candidate.code.toLowerCase() === target || candidate.name.toLowerCase() === target,
-      );
       if (!plant) {
-        throw new Error(`No plant is registered for ${PLANT_CODE}. Contact an administrator to register it.`);
+        throw new Error('No plant is registered. Contact an administrator to register one.');
       }
 
       const uploaded = await uploadWorkbook(plant.id, file);
@@ -91,12 +133,12 @@ export function AutomatePage() {
   }, []);
 
   const handleRunAutomation = useCallback(() => {
-    if (screen.kind === 'selected') void runAutomation(screen.file);
-  }, [screen, runAutomation]);
+    if (screen.kind === 'selected') void runAutomation(screen.file, selectedPlant);
+  }, [screen, selectedPlant, runAutomation]);
 
   const handleRetry = useCallback(() => {
-    if (screen.kind === 'failed') void runAutomation(screen.file);
-  }, [screen, runAutomation]);
+    if (screen.kind === 'failed') void runAutomation(screen.file, selectedPlant);
+  }, [screen, selectedPlant, runAutomation]);
 
   const handleRetrySummary = useCallback(() => {
     if (screen.kind !== 'complete') return;
@@ -118,43 +160,45 @@ export function AutomatePage() {
     };
   }, []);
 
+  const runBlockedReason = selectedPlant
+    ? undefined
+    : plantsError
+      ? 'Run Automation needs a plant — the plant list could not be loaded.'
+      : plants
+        ? 'Run Automation needs a plant — none is registered yet.'
+        : 'Run Automation needs a plant — loading the plant list.';
+
+  const workspaceClassName = screen.kind === 'ready' ? 'amdr-workspace amdr-workspace--dropzone' : 'amdr-workspace';
+  const panel = workbookPanelFor(screen);
+
   return (
     <div className="amdr-page">
       <Header />
       <div className="amdr-page__hero">
         <div className="amdr-page__hero-inner">
-          {screen.kind === 'invalid' && (
-            <UploadErrorCard fileName={screen.fileName} message={screen.message} onChooseAnother={handleChangeWorkbook} />
-          )}
-          {screen.kind === 'processing' && (
-            <ProcessingCard fileName={screen.file.name} stage={screen.stage} done={screen.done} />
-          )}
-          {screen.kind === 'failed' && (
-            <AutomationErrorCard
-              fileName={screen.file.name}
-              message={screen.message}
-              onRetry={handleRetry}
-              onChangeWorkbook={handleChangeWorkbook}
-            />
-          )}
-          {screen.kind === 'complete' && (
-            <ResultCard
-              fileName={screen.file.name}
-              mdrId={screen.mdrId}
-              summary={screen.summary}
-              summaryError={screen.summaryError}
-              onRetrySummary={handleRetrySummary}
-              onReset={handleChangeWorkbook}
-            />
-          )}
-          {(screen.kind === 'ready' || screen.kind === 'selected') && (
-            <UploadCard
-              screen={screen}
-              onFileSelected={handleFileSelected}
-              onReset={handleChangeWorkbook}
-              onRunAutomation={handleRunAutomation}
-            />
-          )}
+          <section className={workspaceClassName} aria-label="Workbook workspace">
+            {screen.kind === 'ready' && <UploadCard onFileSelected={handleFileSelected} />}
+
+            {screen.kind === 'invalid' && (
+              <UploadErrorCard
+                fileName={screen.fileName}
+                message={screen.message}
+                onChooseAnother={handleChangeWorkbook}
+              />
+            )}
+
+            {panel && (
+              <WorkbookPanel
+                file={panel.file}
+                state={panel.state}
+                runBlockedReason={runBlockedReason}
+                onRunAutomation={handleRunAutomation}
+                onChangeWorkbook={handleChangeWorkbook}
+                onRetry={handleRetry}
+                onRetrySummary={handleRetrySummary}
+              />
+            )}
+          </section>
         </div>
       </div>
     </div>

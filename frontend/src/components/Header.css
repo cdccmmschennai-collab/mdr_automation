@@ -4,14 +4,20 @@
   width: 100%;
 }
 
+/* The header bar itself still spans the viewport (background and bottom
+   border run edge to edge); only its content is constrained to the shared
+   page container, so brand and plant/profile sit inside the same left/right
+   margins as the rest of the page instead of against the viewport edges. */
 .amdr-header__inner {
-  padding: 14px 24px;
+  padding: 14px var(--layout-gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
   width: 100%;
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
@@ -81,28 +87,6 @@
   margin-left: auto;
 }
 
-.amdr-header__plant {
-  text-align: right;
-  min-width: 0;
-  max-width: 46vw;
-}
-
-.amdr-header__plant-label {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
-.amdr-header__plant-value {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-primary-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .amdr-header__avatar {
   width: 34px;
   height: 34px;
@@ -118,9 +102,9 @@
 }
 
 /* Below this width, brand + nav + meta no longer fit on one line without
-   crowding. Branding and the plant/profile block take priority (both stay
-   on the top row, flush to their edges); nav drops to its own full-width
-   row beneath them instead of wrapping mid-item and colliding with meta. */
+   crowding. Branding and the profile block take priority (both stay on the
+   top row, flush to their edges); nav drops to its own full-width row
+   beneath them instead of wrapping mid-item and colliding with meta. */
 @media (max-width: 900px) {
   .amdr-header__nav {
     order: 1;

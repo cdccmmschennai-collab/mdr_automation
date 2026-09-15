@@ -1,0 +1,149 @@
+.amdr-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.amdr-rail__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin-bottom: 16px;
+}
+
+/* Compact horizontal rail: marker, label, then a connector line to the next
+   step. Connectors fill the space between steps so the rail spans the
+   column without becoming a wide progress tracker. */
+.amdr-rail__steps {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 560px;
+}
+
+.amdr-rail__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.amdr-rail__step:last-child {
+  flex: 0 0 auto;
+}
+
+.amdr-rail__marker {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--color-border);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  transition:
+    background 220ms,
+    border-color 220ms;
+}
+
+.amdr-rail__step--active .amdr-rail__marker {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.amdr-rail__step--done .amdr-rail__marker {
+  border-color: var(--color-primary-text);
+  background: var(--color-primary-text);
+}
+
+.amdr-rail__step-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  transition: color 220ms;
+}
+
+.amdr-rail__step--active .amdr-rail__step-label,
+.amdr-rail__step--done .amdr-rail__step-label {
+  color: var(--color-primary-text);
+}
+
+.amdr-rail__step--active .amdr-rail__step-label {
+  font-weight: 700;
+}
+
+.amdr-rail__connector {
+  flex: 1;
+  height: 2px;
+  margin: 0 14px;
+  background: var(--color-border);
+  border-radius: 1px;
+  transition: background 220ms;
+}
+
+.amdr-rail__step--done .amdr-rail__connector {
+  background: var(--color-primary-text);
+}
+
+.amdr-rail__current-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary-text);
+  line-height: 1.3;
+}
+
+.amdr-rail__current-detail {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-top: 2px;
+}
+
+/* Indeterminate activity bar — a short amber segment sweeping across a
+   pale track. Motion, not measurement. */
+.amdr-rail__activity {
+  position: relative;
+  height: 4px;
+  margin-top: 18px;
+  width: 100%;
+  max-width: 560px;
+  border-radius: 2px;
+  background: var(--color-surface-soft);
+  overflow: hidden;
+}
+
+.amdr-rail__activity-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent);
+  animation: activity-sweep 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.amdr-rail__note {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 600px) {
+  .amdr-rail__step-label {
+    font-size: 12.5px;
+  }
+
+  .amdr-rail__connector {
+    margin: 0 8px;
+  }
+}
