@@ -30,7 +30,7 @@ from app.domain.models.automation import (
     DOC_IS_REQUIRED_SOW, DOC_TYPE, DOC_WITH_REV,
 )
 from app.infrastructure.excel.output_workbook import (
-    AUTOMATED_SHEET, read_automation_columns,
+    AUTOMATED_SHEET, LATEST_REVISIONS_SHEET, read_automation_columns,
 )
 from app.infrastructure.persistence.database import session_scope
 from app.services import workflow_service
@@ -181,7 +181,8 @@ class TestTheOriginalWorkbookIsPreserved:
         _, _, path = downloaded
         wb = load_workbook(path, read_only=True)
         try:
-            assert wb.sheetnames == SOURCE_SHEETS + [AUTOMATED_SHEET]
+            assert wb.sheetnames == \
+                SOURCE_SHEETS + [AUTOMATED_SHEET, LATEST_REVISIONS_SHEET]
         finally:
             wb.close()
 
@@ -271,7 +272,9 @@ class TestTheAutomatedSheet:
         wb = load_workbook(path, read_only=True)
         try:
             assert "QatarEnergy-TN Automated" in wb.sheetnames
-            assert wb.sheetnames[-1] == "QatarEnergy-TN Automated"
+            # `Latest Revisions` is built from it and comes right after.
+            assert wb.sheetnames[-2] == "QatarEnergy-TN Automated"
+            assert wb.sheetnames[-1] == LATEST_REVISIONS_SHEET
         finally:
             wb.close()
 
@@ -402,10 +405,10 @@ class TestNothingIsChangedByDownloading:
         handed = []
         real = workflow_service.export_automated_workbook
 
-        def spy(source, rows, outdir, destination=None):
+        def spy(source, rows, outdir, destination=None, **kwargs):
             rows = list(rows)
             handed.append(rows)
-            return real(source, rows, outdir, destination)
+            return real(source, rows, outdir, destination, **kwargs)
 
         monkeypatch.setattr(workflow_service, "export_automated_workbook", spy)
         assert client.get(f"/api/v1/mdr/{automated['mdr_id']}/download").status_code == 200
@@ -552,7 +555,7 @@ class TestServerFailures:
 
     def test_a_writer_failure_is_a_500_and_leaves_no_temporary_file(
             self, client, automated, workflow_settings, monkeypatch):
-        def explode(source, rows, outdir, destination=None):
+        def explode(source, rows, outdir, destination=None, **kwargs):
             raise RuntimeError(f"writer exploded on purpose at {outdir}")
 
         monkeypatch.setattr(workflow_service, "export_automated_workbook", explode)

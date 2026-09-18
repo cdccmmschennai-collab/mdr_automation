@@ -26,7 +26,7 @@ from app.domain.models.idb import (
 )
 from app.engine.identity.normalisation import doc_with_rev
 from app.infrastructure.excel.output_workbook import (
-    AUTOMATED_SHEET, read_automation_columns,
+    AUTOMATED_SHEET, LATEST_REVISIONS_SHEET, read_automation_columns,
 )
 from app.infrastructure.filesystem.artifact_writer import sha256_file
 from app.services.automation_service import run_automation
@@ -52,7 +52,11 @@ def exported(source_digest, tmp_path_factory):
     """The whole chain, once. Returns (run, report)."""
     run = run_automation(PHASE1_WORKBOOK)
     outdir = tmp_path_factory.mktemp("phase2d-real")
-    return run, export_automated_workbook(PHASE1_WORKBOOK, run.rows, outdir)
+    latest_source_rows = {d.source_row for d in run.result.documents
+                          if d.is_latest_revision}
+    report = export_automated_workbook(PHASE1_WORKBOOK, run.rows, outdir,
+                                       latest_source_rows=latest_source_rows)
+    return run, report
 
 
 @pytest.fixture(scope="module")
@@ -195,23 +199,30 @@ class TestTheGeneratedFile:
         finally:
             wb.close()
         assert set(before) <= set(report.sheet_names)
-        assert set(report.sheet_names) - set(before) == {AUTOMATED_SHEET}
+        assert set(report.sheet_names) - set(before) == \
+            {AUTOMATED_SHEET, LATEST_REVISIONS_SHEET}
 
-    def test_the_automated_sheet_is_added_at_the_end(self, exported):
-        """Every sheet the employee sent keeps the position it arrived in."""
+    def test_the_automated_sheet_and_latest_revisions_are_added_at_the_end(
+            self, exported):
+        """Every sheet the employee sent keeps the position it arrived in;
+        `Latest Revisions` is built from the automated sheet, so it comes
+        right after it."""
         _, report = exported
         names = list(report.sheet_names)
-        assert names[-1] == AUTOMATED_SHEET
+        assert names[-1] == LATEST_REVISIONS_SHEET
+        assert names[-2] == AUTOMATED_SHEET
         wb = load_workbook(PHASE1_WORKBOOK, read_only=True)
         try:
-            assert names[:-1] == list(wb.sheetnames)
+            assert names[:-2] == list(wb.sheetnames)
         finally:
             wb.close()
 
     def test_it_is_the_only_sheet_written(self, exported):
         _, report = exported
         assert AUTOMATED_SHEET not in report.untouched_sheets
+        assert LATEST_REVISIONS_SHEET not in report.untouched_sheets
         assert report.sheet_names.count(AUTOMATED_SHEET) == 1
+        assert report.sheet_names.count(LATEST_REVISIONS_SHEET) == 1
 
     def test_the_row_count_is_preserved(self, exported):
         _, report = exported
@@ -346,3 +357,63 @@ class TestCheckStatusIsBlankInTheFile:
     def test_the_writer_reports_writing_no_cell_in_it(self, exported):
         _, report = exported
         assert report.check_status_cells_written == 0
+
+
+class TestLatestRevisionsOverTheRealWorkbook:
+    """The additive sheet, over the real ~22k-row file. Reports the shape of
+    the real data rather than asserting a fixed count, since the source
+    workbook can change; what is pinned is the *relationship* between the
+    numbers - see `test_ground_truths_agreement.py` for the analogous
+    approach on Phase 1's own latest/old determination."""
+
+    def test_reports_the_real_workbook_shape(self, exported, request):
+        """TEST 8: total automated rows, unique documents, rows kept, and
+        documents whose group had no unambiguous winner (a tie, or every row
+        ineligible) - printed for a human to read, not just asserted on."""
+        run, report = exported
+        groups = {d.document_identity for d in run.result.documents
+                  if d.document_identity}
+        winners = sum(1 for d in run.result.documents if d.is_latest_revision)
+        ambiguous = len(groups) - winners
+
+        print(f"\n  automated rows       : {len(run.rows)}")
+        print(f"  unique documents     : {len(groups)}")
+        print(f"  latest revisions rows: {report.latest_revisions_rows}")
+        print(f"  ambiguous documents  : {ambiguous}  "
+              f"(no unambiguous winner - a tie, or every row ineligible)")
+
+        assert report.latest_revisions_rows == winners
+        assert report.latest_revisions_rows <= len(groups)
+        assert report.latest_revisions_rows <= len(run.rows)
+
+    def test_every_kept_row_is_a_row_the_engine_marked_latest(self, exported):
+        """`Latest Revisions` renumbers rows (they are compacted onto
+        `header_row + 1 ..`), so a kept row is identified by its `DOC WITH
+        REV` value, not by the row number it now sits on."""
+        run, report = exported
+        expected = {doc_with_rev(d.qatarenergy_document_no, d.revision_raw)
+                   for d in run.result.documents if d.is_latest_revision}
+        _, _, rows = read_automation_columns(report.destination,
+                                             LATEST_REVISIONS_SHEET)
+        assert {r[DOC_WITH_REV] for r in rows} == expected
+
+    def test_at_most_one_row_per_document_identity(self, exported):
+        run, report = exported
+        by_doc_with_rev = {
+            doc_with_rev(d.qatarenergy_document_no, d.revision_raw):
+                d.document_identity
+            for d in run.result.documents}
+        _, _, rows = read_automation_columns(report.destination,
+                                             LATEST_REVISIONS_SHEET)
+        identities = [by_doc_with_rev[r[DOC_WITH_REV]] for r in rows]
+        assert len(identities) == len(set(identities))
+
+    def test_every_row_carries_the_complete_automation_columns(self, exported):
+        _, report = exported
+        _, letters, rows = read_automation_columns(report.destination,
+                                                    LATEST_REVISIONS_SHEET)
+        assert set(letters) == set(AUTOMATION_COLUMNS)
+        assert len(rows) == report.latest_revisions_rows
+        for row in rows:
+            assert all(caption in row for caption in AUTOMATION_COLUMNS)
+            assert row[DOC_WITH_REV]

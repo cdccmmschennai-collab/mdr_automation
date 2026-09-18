@@ -29,7 +29,7 @@ from app.domain.models.automation import (
     DOC_IS_REQUIRED_SOW, DOC_TYPE, DOC_WITH_REV,
 )
 from app.infrastructure.excel.output_workbook import (
-    AUTOMATED_SHEET, read_automation_columns,
+    AUTOMATED_SHEET, LATEST_REVISIONS_SHEET, read_automation_columns,
 )
 from app.services.automation_service import run_automation
 from app.services.export_service import AUTOMATED_WORKBOOK_SUFFIX
@@ -269,8 +269,9 @@ class TestDownload:
             after = list(wb.sheetnames)
         finally:
             wb.close()
-        assert after[:-1] == before
-        assert after[-1] == AUTOMATED_SHEET
+        assert after[:-2] == before
+        assert after[-2] == AUTOMATED_SHEET
+        assert after[-1] == LATEST_REVISIONS_SHEET
         assert after.count(AUTOMATED_SHEET) == 1
 
     def test_the_source_sheet_is_unchanged(self, downloaded, processed):

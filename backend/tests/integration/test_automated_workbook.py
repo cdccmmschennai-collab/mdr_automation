@@ -21,8 +21,9 @@ from app.domain.models.automation import (
     DOC_IS_REQUIRED_SOW, DOC_TYPE, DOC_WITH_REV, AutomationRow,
 )
 from app.infrastructure.excel.output_workbook import (
-    AUTOMATED_SHEET, HEADER_FILL_RGB, AutomatedWorkbookWriter,
-    OutputWouldOverwriteSource, read_automation_columns,
+    AUTOMATED_SHEET, HEADER_FILL_RGB, LATEST_REVISIONS_SHEET,
+    AutomatedWorkbookWriter, OutputWouldOverwriteSource,
+    read_automation_columns,
 )
 from app.infrastructure.filesystem.artifact_writer import sha256_file
 from app.services.export_service import (
@@ -146,7 +147,8 @@ class TestTheWorkbookIsPreserved:
     def test_every_original_sheet_is_still_there_in_order(self, output):
         """The employee's sheets keep the order they arrived in, and the one
         new sheet is added at the end."""
-        assert output.sheetnames == SOURCE_SHEETS + [AUTOMATED_SHEET]
+        assert output.sheetnames == \
+            SOURCE_SHEETS + [AUTOMATED_SHEET, LATEST_REVISIONS_SHEET]
 
     def test_only_the_automated_sheet_was_added(self, written):
         report, _ = written
@@ -615,7 +617,8 @@ class TestAnUnworkedWorkbook:
     def test_the_output_is_the_four_sheets_plus_the_automated_one(self,
                                                                   exported):
         _, report = exported
-        assert list(report.sheet_names) == UNWORKED_SHEETS + [AUTOMATED_SHEET]
+        assert list(report.sheet_names) == \
+            UNWORKED_SHEETS + [AUTOMATED_SHEET, LATEST_REVISIONS_SHEET]
 
     def test_no_working_sheet_is_invented(self, exported):
         """The automation writes `QatarEnergy-TN Automated` and nothing else.
@@ -656,7 +659,8 @@ class TestAnAlreadyWorkedWorkbook:
     def test_the_output_is_the_five_sheets_plus_the_automated_one(self,
                                                                   exported):
         _, report = exported
-        assert list(report.sheet_names) == WORKED_SHEETS + [AUTOMATED_SHEET]
+        assert list(report.sheet_names) == \
+            WORKED_SHEETS + [AUTOMATED_SHEET, LATEST_REVISIONS_SHEET]
 
     def test_exactly_one_automated_sheet_is_added(self, exported):
         _, report = exported
@@ -740,7 +744,8 @@ class TestTheDownloadContract:
     def test_the_original_sheets_are_all_still_there_beside_it(self, output):
         """The contract is the employee's workbook *plus* a sheet, never a
         sheet instead of the workbook."""
-        assert output.sheetnames == SOURCE_SHEETS + [CONTRACT_SHEET]
+        assert output.sheetnames == \
+            SOURCE_SHEETS + [CONTRACT_SHEET, LATEST_REVISIONS_SHEET]
 
     def test_the_four_required_captions_are_on_it(self, written):
         _, letters, _ = read_automation_columns(written[1], CONTRACT_SHEET)

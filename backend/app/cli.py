@@ -57,7 +57,10 @@ def _run_excel(workbook: Path, result, rules_workbook, outdir: Path,
     run = AutomationRun(result=result,
                         rows=build_automation_rows(result.documents,
                                                    sow_resolver, idb_resolver))
-    report = export_automated_workbook(workbook, run.rows, outdir)
+    latest_source_rows = {d.source_row for d in result.documents
+                          if d.is_latest_revision}
+    report = export_automated_workbook(workbook, run.rows, outdir,
+                                       latest_source_rows=latest_source_rows)
     export_automation_rows(run.rows, outdir)
 
     after = sha256_file(workbook)
@@ -75,6 +78,8 @@ def _run_excel(workbook: Path, result, rules_workbook, outdir: Path,
     print(f"  sheets in output: {', '.join(report.sheet_names)}")
     print(f"  rows written    : {report.rows_written} of {report.data_rows} "
           f"data rows")
+    print(f"  latest revisions: {report.latest_revisions_rows} rows on "
+          f"{report.latest_revisions_sheet!r}")
     print("\n  columns:")
     for caption in AUTOMATION_COLUMNS:
         letter = report.columns[caption]

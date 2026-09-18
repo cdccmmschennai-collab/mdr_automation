@@ -601,7 +601,7 @@ def _automation_row(stored: MdrDocumentRow) -> AutomationRow:
 
 
 def _persisted_automation_rows(session, submission: MdrSubmission
-                               ) -> list[AutomationRow]:
+                               ) -> tuple[list[AutomationRow], frozenset[int]]:
     """The automation result exactly as PostgreSQL holds it, or a
     `DownloadFailed` naming what is wrong with it.
 
@@ -612,6 +612,13 @@ def _persisted_automation_rows(session, submission: MdrSubmission
     A result that fails a check is not repaired, filtered or padded; the
     download refuses, because a workbook that quietly omitted rows would look
     finished.
+
+    Also returns the source rows `extract_submission` recorded as each
+    document's latest revision (`MdrDocumentRow.is_latest_revision`, itself
+    `DocumentRecord.is_latest_revision` as `DocumentRowRepository.add_rows`
+    stored it) - what `Latest Revisions` is filtered to. Read from the same
+    `stored` rows the automation values come from, so the two can never
+    disagree about which submission they describe.
     """
     summary = ProcessingSummaryRepository(session).for_submission(submission.id)
     if summary is None:
@@ -659,7 +666,9 @@ def _persisted_automation_rows(session, submission: MdrSubmission
         raise DownloadFailed(
             f"the document rows of submission {submission.id} disagree with "
             f"its processing summary on {', '.join(disagreeing)}")
-    return rows
+    latest_source_rows = frozenset(r.source_row for r in stored
+                                   if r.is_latest_revision)
+    return rows, latest_source_rows
 
 
 def _check_written(submission: MdrSubmission, rows: list[AutomationRow],
@@ -693,12 +702,14 @@ def download_submission(mdr_id: uuid.UUID, *,
     Runs nothing. The rows are read from `mdr_document_rows` as the automate
     step left them, rebuilt as `AutomationRow`s, and handed to
     `export_automated_workbook` - the Phase 1 writer the CLI's `--excel`
-    uses - together with the stored upload. The result is therefore the
-    employee's own workbook, every sheet in its original order, plus the
-    `QatarEnergy-TN Automated` sheet populated from the database and mapped
-    by `source_row`. The writer's guarantees (formulas, formatting, merges,
-    conditional formats, validations, filter, frozen pane; CHECK STATUS
-    blank; the source never written) are inherited, not re-implemented.
+    uses - together with the stored upload and the source rows
+    `is_latest_revision` marked. The result is therefore the employee's own
+    workbook, every sheet in its original order, plus the `QatarEnergy-TN
+    Automated` sheet populated from the database and mapped by `source_row`,
+    plus `Latest Revisions` filtered from it. The writer's guarantees
+    (formulas, formatting, merges, conditional formats, validations, filter,
+    frozen pane; CHECK STATUS blank; the source never written) are inherited,
+    not re-implemented.
 
     The database is touched inside one read-only `session_scope` and released
     before the workbook is opened: generating the real ~22k-row file takes
@@ -721,7 +732,8 @@ def download_submission(mdr_id: uuid.UUID, *,
     with session_scope(settings) as session:
         submission = _require(session, mdr_id)
         _require_status(submission, SubmissionStatus.AUTOMATED, "download")
-        rows = _persisted_automation_rows(session, submission)
+        rows, latest_source_rows = _persisted_automation_rows(session,
+                                                               submission)
 
     try:
         source = _stored_workbook(store, submission)
@@ -738,7 +750,8 @@ def download_submission(mdr_id: uuid.UUID, *,
     workdir = Path(tempfile.mkdtemp(prefix=_DOWNLOAD_TMP_PREFIX))
     try:
         report = export_automated_workbook(
-            source, rows, workdir, destination=workdir / filename)
+            source, rows, workdir, destination=workdir / filename,
+            latest_source_rows=latest_source_rows)
         _check_written(submission, rows, report)
     except WorkflowError:
         shutil.rmtree(workdir, ignore_errors=True)

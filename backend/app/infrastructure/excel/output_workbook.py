@@ -9,7 +9,7 @@ no SOW rule and no IDB rule appears below.
 What it produces
 ----------------
 A copy of the employee's own workbook, saved under a new name, with exactly
-one sheet added:
+two sheets added:
 
     QatarEnergy-TN            unchanged, exactly as the employee sent it
     QatarEnergy-TN Automated  the same rows, plus the five automation columns
@@ -17,13 +17,37 @@ one sheet added:
     Status Codes              unchanged
     VENDOR LIST               unchanged
     QatarEnergy-TN WORKING    unchanged, *if the employee had already made one*
+    Latest Revisions          `QatarEnergy-TN Automated`, filtered to one row
+                               per document - the one `is_latest_revision`
+                               names
 
 `QatarEnergy-TN` is always the source of the data, and `QatarEnergy-TN
-Automated` is always the only sheet written. An input that already carries a
+Automated` is the only sheet built from it - `Latest Revisions` is then built
+from *that* sheet, not from the source again, so it carries the same rows,
+same columns, same styling, filtered. An input that already carries a
 hand-worked `QatarEnergy-TN WORKING` is treated no differently: that sheet is
 never read for its answers, never used as the output, and never touched. Its
 DOC IDB COMPLETED STATUS values are somebody's manual work, not an input to
 anything here.
+
+`Latest Revisions` answers one question per document - "is this the row
+`engine.revision.ranking.determine_latest` marked as the latest revision?" -
+and nothing else; it never re-parses a revision or re-groups a document
+identity. The caller hands in `write(..., latest_source_rows=...)` the set of
+source rows that engine already decided are latest (see
+`services.automation_service` and `services.workflow_service`, which read it
+off `DocumentRecord.is_latest_revision` / the persisted column of the same
+name). Omitted, every row being written is treated as latest - the sheet is
+then a full copy of the automated one, which is what every caller that does
+not (yet) pass the set gets.
+
+Every cell's own style (font, fill, border, alignment, number format) is
+copied over row by row, so the sheet looks like the automated one, including
+its green automation-header fill. The auto-filter is re-anchored onto the
+new, shorter data extent. Conditional formats and data validations are not:
+a real workbook's are not reliably "one rule per whole column" - see
+`_write_latest_revisions` - and a rule written for one specific row has
+nothing correct to mean once the rows have been filtered and reordered.
 
 Where the five columns go
 -------------------------
@@ -91,6 +115,10 @@ from .workbook_reader import detect_header_row, find_sheet, header_key
 #: employee's own eye all find the automated results under it, so it is pinned
 #: by a test and is not to be changed casually.
 AUTOMATED_SHEET = "QatarEnergy-TN Automated"
+
+#: The additive sheet: one complete row of `AUTOMATED_SHEET` per document,
+#: the one its latest revision. Always the last sheet in the workbook.
+LATEST_REVISIONS_SHEET = "Latest Revisions"
 
 #: Sheets that belong to the employee and are never written to, whatever they
 #: contain. Listed for the report and for the tests to assert against; the
@@ -162,6 +190,12 @@ class WorkbookWriteReport:
     inserted_at: int = 0
     #: Sheets the writer left exactly as it found them.
     untouched_sheets: tuple[str, ...] = ()
+    #: The `Latest Revisions` sheet's own name, for the report.
+    latest_revisions_sheet: str = ""
+    #: How many rows it holds - one per document with an unambiguous latest
+    #: revision. A document whose group has no winner (no eligible row, or a
+    #: tie) contributes none; see `engine.revision.ranking.determine_latest`.
+    latest_revisions_rows: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -181,6 +215,8 @@ class WorkbookWriteReport:
             "inserted_before": self.inserted_before,
             "inserted_columns": self.inserted_columns,
             "inserted_at": self.inserted_at,
+            "latest_revisions_sheet": self.latest_revisions_sheet,
+            "latest_revisions_rows": self.latest_revisions_rows,
         }
 
 
@@ -271,6 +307,32 @@ def _insert_columns(ws, at: int, count: int) -> None:
                 f"{row}")
 
 
+def _remap_data_range(ref: str, header_row: int, new_last_row: int
+                      ) -> Optional[str]:
+    """Map one A1 range of `AUTOMATED_SHEET` onto `LATEST_REVISIONS_SHEET`'s
+    shorter row extent, same columns - for a range that already covers the
+    *whole* data area (the auto-filter, on every real workbook seen so far).
+
+    A range confined to the title/header band (`max_row <= header_row`) is
+    unchanged - those rows are copied verbatim and did not move. A whole-data
+    range is anchored onto `header_row + 1 .. new_last_row` instead, carrying
+    the same shape over. Anything narrower is left alone by the caller - see
+    `_write_latest_revisions`. Returns None when the range would invert (its
+    own `min_row` sits below `new_last_row`, which a narrower range's easily
+    can) or nothing survives (no rows kept).
+    """
+    cr = CellRange(ref)
+    if cr.max_row <= header_row:
+        return str(cr)
+    if new_last_row <= header_row:
+        return None
+    cr.min_row = max(cr.min_row, header_row + 1)
+    cr.max_row = new_last_row
+    if cr.min_row > cr.max_row:
+        return None
+    return str(cr)
+
+
 def _text(value: object) -> str:
     """Cell presentation: whitespace collapsed, upper case.
 
@@ -288,19 +350,29 @@ class AutomatedWorkbookWriter:
     def __init__(self, source: Path,
                  sheet_candidates: tuple[str, ...] = QE_SHEET,
                  expected_headers: tuple[str, ...] = tuple(QE_EXPECTED),
-                 automated_sheet: str = AUTOMATED_SHEET):
+                 automated_sheet: str = AUTOMATED_SHEET,
+                 latest_revisions_sheet: str = LATEST_REVISIONS_SHEET):
         self.source = Path(source)
         if not self.source.is_file():
             raise FileNotFoundError(self.source)
         self.sheet_candidates = sheet_candidates
         self.expected_headers = expected_headers
         self.automated_sheet = automated_sheet
+        self.latest_revisions_sheet = latest_revisions_sheet
 
     # ------------------------------------------------------------------ API
 
-    def write(self, rows: Iterable[AutomationRow],
-              destination: Path) -> WorkbookWriteReport:
-        """Write the automated copy to `destination` and report what was done."""
+    def write(self, rows: Iterable[AutomationRow], destination: Path, *,
+              latest_source_rows: Optional[Iterable[int]] = None
+              ) -> WorkbookWriteReport:
+        """Write the automated copy to `destination` and report what was done.
+
+        `latest_source_rows` is the set of source rows `Latest Revisions`
+        keeps - the ones `engine.revision.ranking.determine_latest` already
+        marked `is_latest_revision` for their document. Omitted, every row in
+        `rows` is treated as latest, so the sheet is a full copy of the
+        automated one; see the module docstring.
+        """
         destination = Path(destination)
         if destination.resolve() == self.source.resolve():
             raise OutputWouldOverwriteSource(
@@ -308,6 +380,8 @@ class AutomatedWorkbookWriter:
                 f"source: {self.source}")
 
         by_row = {r.source_row: r for r in rows}
+        latest = (frozenset(latest_source_rows)
+                 if latest_source_rows is not None else frozenset(by_row))
 
         # Not read_only: the sheet has to be copied and added to. Not
         # data_only either, so the 131,558 formulas survive as formulas.
@@ -322,6 +396,8 @@ class AutomatedWorkbookWriter:
             self._dress_title_rows(dst, header_row, placement[1], placement[2])
             self._write_headers(dst, header_row, columns, reused)
             written, outside = self._write_rows(dst, header_row, columns, by_row)
+            latest_rows = self._write_latest_revisions(wb, dst, header_row,
+                                                       latest)
 
             destination.parent.mkdir(parents=True, exist_ok=True)
             wb.save(destination)
@@ -334,8 +410,9 @@ class AutomatedWorkbookWriter:
                          for c in AUTOMATION_COLUMNS},
                 reused_columns=reused,
                 sheet_names=tuple(wb.sheetnames),
-                untouched_sheets=tuple(n for n in wb.sheetnames
-                                       if n != dst.title),
+                untouched_sheets=tuple(
+                    n for n in wb.sheetnames
+                    if n not in (dst.title, self.latest_revisions_sheet)),
                 data_rows=max(dst.max_row - header_row, 0),
                 rows_written=written, rows_outside_sheet=outside,
                 # Structurally zero: `_write_rows` never touches the column.
@@ -343,6 +420,8 @@ class AutomatedWorkbookWriter:
                 inserted_before=placement[0],
                 inserted_at=placement[1],
                 inserted_columns=placement[2],
+                latest_revisions_sheet=self.latest_revisions_sheet,
+                latest_revisions_rows=latest_rows,
             )
         finally:
             wb.close()
@@ -584,6 +663,94 @@ class AutomatedWorkbookWriter:
                     cell._style = copy(template._style)
             written += 1
         return written, tuple(outside)
+
+    def _write_latest_revisions(self, wb, dst, header_row: int,
+                                latest: frozenset[int]) -> int:
+        """Build `latest_revisions_sheet`: `dst`, filtered to `latest` rows.
+
+        Built by copying cells directly from the already-finished automated
+        sheet - title rows verbatim, then one data row per member of `latest`
+        - rather than `copy_worksheet` followed by deleting the rows that are
+        not wanted. `dst` may carry ~22k data rows and `latest` is typically a
+        small fraction of them; a direct copy costs one cell visit per row
+        *kept*, where a copy-then-delete would cost a shift of the remaining
+        sheet for every row *dropped*. Returns the number of rows written.
+        """
+        name = self.latest_revisions_sheet
+        if name in wb.sheetnames:
+            # A re-run over an already-automated workbook replaces the sheet,
+            # exactly as `_copy_sheet` does for the automated one.
+            del wb[name]
+        lr = wb.create_sheet(name)
+        lr.sheet_state = dst.sheet_state
+        lr.views = deepcopy(dst.views)          # freeze panes, zoom, gridlines
+
+        # Read once: both are O(cells) scans over `dst`, which may hold
+        # several hundred thousand cells, and belong outside any loop -
+        # `kept_rows` below is exactly the loop that using `dst.max_row`
+        # directly inside would have re-run this scan once per candidate row.
+        max_col = dst.max_column
+        max_row = dst.max_row
+
+        def _copy_cell(source_cell, target_row: int, target_col: int) -> None:
+            cell = lr.cell(row=target_row, column=target_col,
+                           value=source_cell.value)
+            if source_cell.has_style:
+                cell._style = copy(source_cell._style)
+            if source_cell.hyperlink:
+                cell.hyperlink = copy(source_cell.hyperlink)
+
+        for row in range(1, header_row + 1):
+            height = dst.row_dimensions[row].height
+            if height is not None:
+                lr.row_dimensions[row].height = height
+            for col in range(1, max_col + 1):
+                _copy_cell(dst.cell(row=row, column=col), row, col)
+
+        # Merged cells confined to the title/header band travel unchanged -
+        # those rows were copied verbatim and did not move. The automated
+        # sheet has none in its data area to begin with.
+        for merged in dst.merged_cells.ranges:
+            if merged.max_row <= header_row:
+                lr.merge_cells(str(merged))
+
+        kept_rows = sorted(r for r in latest if header_row < r <= max_row)
+        for offset, source_row in enumerate(kept_rows, start=1):
+            target_row = header_row + offset
+            height = dst.row_dimensions[source_row].height
+            if height is not None:
+                lr.row_dimensions[target_row].height = height
+            for col in range(1, max_col + 1):
+                _copy_cell(dst.cell(row=source_row, column=col), target_row,
+                          col)
+
+        for letter, dim in dst.column_dimensions.items():
+            new_dim = lr.column_dimensions[letter]
+            new_dim.width = dim.width
+            new_dim.hidden = dim.hidden
+            new_dim.outlineLevel = dim.outlineLevel
+
+        # The auto-filter is carried over, re-anchored onto the new, shorter
+        # data extent: on every real workbook seen so far it is one range
+        # covering the whole table, so the shape survives being shortened.
+        # Conditional formats and data validations are NOT carried over: a
+        # real workbook's are not reliably one rule per whole column - the
+        # 22k-row source has 28 conditional-format ranges, most of them a
+        # single specific row - so remapping would misapply a rule written
+        # for one row onto whatever unrelated row now sits at that position
+        # in a filtered, reordered sheet. Styling (font, fill, border, number
+        # format) is unaffected: it is copied cell by cell above.
+        new_last_row = header_row + len(kept_rows)
+        if dst.auto_filter.ref:
+            remapped = _remap_data_range(dst.auto_filter.ref, header_row,
+                                        new_last_row)
+            if remapped:
+                lr.auto_filter.ref = remapped
+
+        # Last in the book, so `Latest Revisions` reads as what it is: the
+        # final, additive sheet, after `automated_sheet`.
+        wb.move_sheet(lr, offset=len(wb.sheetnames) - 1 - wb.index(lr))
+        return len(kept_rows)
 
 
 def read_automation_columns(path: Path, sheet: str = AUTOMATED_SHEET,

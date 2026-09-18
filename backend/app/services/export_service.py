@@ -109,7 +109,8 @@ def automated_workbook_path(source: Path, outdir: Path) -> Path:
 
 def export_automated_workbook(source: Path, rows: Iterable[AutomationRow],
                               outdir: Path,
-                              destination: Optional[Path] = None
+                              destination: Optional[Path] = None, *,
+                              latest_source_rows: Optional[Iterable[int]] = None
                               ) -> WorkbookWriteReport:
     """Write the five-column workbook: a copy of `source`, plus the columns.
 
@@ -117,12 +118,18 @@ def export_automated_workbook(source: Path, rows: Iterable[AutomationRow],
     written to, and a `destination` that resolves to it raises
     `OutputWouldOverwriteSource` rather than being silently redirected. That
     is the difference between a bug and a lost input file.
+
+    `latest_source_rows` - the source rows `DocumentRecord.is_latest_revision`
+    already marked - is passed straight through to the writer, which uses it
+    to build `Latest Revisions`; see `output_workbook` for what happens when
+    it is omitted.
     """
     destination = destination or automated_workbook_path(source, outdir)
     if Path(destination).resolve() == Path(source).resolve():
         raise OutputWouldOverwriteSource(
             f"the automated workbook would overwrite its source: {source}")
-    return AutomatedWorkbookWriter(source).write(rows, destination)
+    return AutomatedWorkbookWriter(source).write(
+        rows, destination, latest_source_rows=latest_source_rows)
 
 
 def export_automation_rows(rows: Iterable[AutomationRow], outdir: Path) -> Path:
